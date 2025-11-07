@@ -325,17 +325,24 @@ def validate_rental_fields(
 def validate_sale_fields(
     listing_type: Optional[str],
     hoa_fees: Optional[float],
-    property_taxes: Optional[float]
+    property_taxes: Optional[float],
+    council_tax: Optional[float] = None,
+    rates: Optional[float] = None,
+    strata_fees: Optional[float] = None
 ) -> List[str]:
     """
-    Validate sale-specific fields.
+    Validate sale-specific fields (region-dependent).
     
     These fields should only be provided for sale listings.
+    Different regions have different fields.
     
     Args:
         listing_type: Listing type
-        hoa_fees: HOA fees amount
-        property_taxes: Property taxes amount
+        hoa_fees: HOA fees / Condo fees / Service charge (US/CA/UK)
+        property_taxes: Property taxes (US/CA)
+        council_tax: Council tax (UK)
+        rates: Council rates (Australia)
+        strata_fees: Strata fees / Body corporate (Australia/Canada)
         
     Returns:
         List of error messages (empty if all valid)
@@ -346,15 +353,30 @@ def validate_sale_fields(
     if listing_type and listing_type.lower().strip() != "sale":
         return errors  # Not a sale, skip sale-specific validation
     
-    # Validate hoa_fees
+    # Validate hoa_fees (US/CA/UK)
     hoa_error = validate_non_negative_number(hoa_fees, "hoa_fees")
     if hoa_error:
         errors.append(hoa_error)
     
-    # Validate property_taxes
+    # Validate property_taxes (US/CA)
     taxes_error = validate_non_negative_number(property_taxes, "property_taxes")
     if taxes_error:
         errors.append(taxes_error)
+    
+    # Validate council_tax (UK)
+    council_tax_error = validate_non_negative_number(council_tax, "council_tax")
+    if council_tax_error:
+        errors.append(council_tax_error)
+    
+    # Validate rates (Australia)
+    rates_error = validate_non_negative_number(rates, "rates")
+    if rates_error:
+        errors.append(rates_error)
+    
+    # Validate strata_fees (Australia/Canada)
+    strata_error = validate_non_negative_number(strata_fees, "strata_fees")
+    if strata_error:
+        errors.append(strata_error)
     
     return errors
 
@@ -373,6 +395,9 @@ def validate_input_fields(
     security_deposit: Optional[float] = None,
     hoa_fees: Optional[float] = None,
     property_taxes: Optional[float] = None,
+    council_tax: Optional[float] = None,
+    rates: Optional[float] = None,
+    strata_fees: Optional[float] = None,
 ) -> List[str]:
     """
     Perform comprehensive validation of all input fields.
@@ -383,13 +408,16 @@ def validate_input_fields(
     Args:
         address: Property address (required)
         listing_type: Listing type - "sale" or "rent" (required)
-        price: Asking price (required)
+        price: Asking price (required, currency depends on region)
         notes: Property notes (optional)
         billing_cycle: Billing cycle for rentals (optional)
         lease_term: Lease term for rentals (optional)
-        security_deposit: Security deposit for rentals (optional)
-        hoa_fees: HOA fees for sales (optional)
-        property_taxes: Property taxes for sales (optional)
+        security_deposit: Security deposit / bond for rentals (optional, currency depends on region)
+        hoa_fees: HOA fees / Condo fees / Service charge for sales (optional, region-dependent)
+        property_taxes: Property taxes for sales (optional, US/CA)
+        council_tax: Council tax (optional, UK - sale or rent)
+        rates: Council rates (optional, Australia - sale only)
+        strata_fees: Strata fees / Body corporate (optional, Australia/Canada - sale only)
         
     Returns:
         List of error messages (empty if all validations pass)
@@ -420,7 +448,14 @@ def validate_input_fields(
     )
     errors.extend(rental_errors)
     
-    sale_errors = validate_sale_fields(listing_type, hoa_fees, property_taxes)
+    sale_errors = validate_sale_fields(
+        listing_type, 
+        hoa_fees, 
+        property_taxes,
+        council_tax=council_tax,
+        rates=rates,
+        strata_fees=strata_fees
+    )
     errors.extend(sale_errors)
     
     return errors

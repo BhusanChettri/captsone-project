@@ -3,11 +3,16 @@ LLM Client Utilities for Property Listing System - Iteration 1
 
 This module provides LLM client initialization and interaction utilities.
 Uses LangChain for LLM integration.
+
+Observability:
+- Integrated with Opik tracing for LLM call tracking
+- Tracks time-to-first-token (TTFT) and total generation time
 """
 
 import json
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple
 from langchain_core.output_parsers import StrOutputParser
+from utils.tracing import trace_llm_call, set_trace_metadata
 
 
 def initialize_llm(model_name: str = "gpt-4o-mini", model_provider: str = "openai", **kwargs):
@@ -45,17 +50,23 @@ def initialize_llm(model_name: str = "gpt-4o-mini", model_provider: str = "opena
         raise Exception(f"Failed to initialize LLM: {str(e)}")
 
 
-def call_llm_with_prompt(llm: Any, prompt: str, temperature: float = 0.7) -> str:
+def call_llm_with_prompt(
+    llm: Any, 
+    prompt: str, 
+    temperature: float = 0.7,
+    model_name: Optional[str] = None
+) -> str:
     """
     Call LLM with a prompt and return the response.
     
     This function converts the string prompt to a message format that
-    LangChain chat models expect, then invokes the LLM.
+    LangChain chat models expect, then invokes the LLM with tracing.
     
     Args:
         llm: Initialized LLM instance (chat model)
         prompt: Prompt string to send to LLM
         temperature: Temperature setting for LLM (0.0-1.0)
+        model_name: Model name for tracing metadata (optional)
         
     Returns:
         LLM response as string
@@ -64,27 +75,35 @@ def call_llm_with_prompt(llm: Any, prompt: str, temperature: float = 0.7) -> str
         Exception: If LLM call fails
     """
     try:
-        # Convert string prompt to message format for chat models
-        # LangChain chat models expect messages, not raw strings
-        from langchain_core.messages import HumanMessage
+        # Get model name from LLM if not provided
+        if not model_name:
+            if hasattr(llm, 'model_name'):
+                model_name = llm.model_name
+            elif hasattr(llm, 'model'):
+                model_name = str(llm.model)
+            else:
+                model_name = "unknown"
         
-        # Create a human message with the prompt
-        messages = [HumanMessage(content=prompt)]
+        # Use tracing wrapper to track TTFT and total generation time
+        response, metrics = trace_llm_call(
+            llm=llm,
+            prompt=prompt,
+            temperature=temperature,
+            model_name=model_name
+        )
         
-        # Invoke LLM with messages
-        response = llm.invoke(messages)
+        # Store LLM metrics in trace metadata
+        set_trace_metadata("llm_metrics", metrics)
+        if metrics.get("ttft"):
+            set_trace_metadata("llm_ttft", metrics["ttft"])
+        if metrics.get("duration"):
+            set_trace_metadata("llm_total_time", metrics["duration"])
         
-        # Extract content from response
-        # Response could be AIMessage or similar, extract content
-        if hasattr(response, 'content'):
-            return response.content
-        elif isinstance(response, str):
-            return response
-        else:
-            # Fallback: convert to string
-            return str(response)
+        return response
             
     except Exception as e:
+        # Store error in trace metadata
+        set_trace_metadata("llm_error", str(e))
         raise Exception(f"LLM call failed: {str(e)}")
 
 

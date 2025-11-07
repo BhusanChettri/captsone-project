@@ -10,6 +10,7 @@ It handles:
 """
 
 import sys
+import time
 from pathlib import Path
 
 # Add src to path
@@ -17,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent / "src"))
 
 from core import create_workflow, PropertyListingState
 from models import PropertyListingInput
+from utils.tracing import clear_trace_metadata, set_trace_metadata, get_trace_metadata
 
 
 def process_listing_request(
@@ -24,11 +26,15 @@ def process_listing_request(
     listing_type: str,
     price: float,
     notes: str = "",
+    region: str = "US",
     billing_cycle: str = None,
     lease_term: str = None,
     security_deposit: float = None,
     hoa_fees: float = None,
     property_taxes: float = None,
+    council_tax: float = None,
+    rates: float = None,
+    strata_fees: float = None,
 ) -> dict:
     """
     Process a property listing request from UI.
@@ -42,13 +48,17 @@ def process_listing_request(
     Args:
         address: Property address (required)
         listing_type: "sale" or "rent" (required)
-        price: Asking price in USD (required)
+        price: Asking price (currency depends on region) (required)
         notes: Free-text description with key features (optional)
+        region: Region code (US, CA, UK, AU). Defaults to "US" if not specified.
         billing_cycle: How often rent is paid, e.g., "monthly", "weekly" (rental only)
         lease_term: Lease duration, e.g., "12 months" (rental only)
-        security_deposit: Security deposit amount in USD (rental only)
-        hoa_fees: HOA fees in USD per month (sale only)
-        property_taxes: Annual property taxes in USD (sale only)
+        security_deposit: Security deposit / bond amount (rental only, currency depends on region)
+        hoa_fees: HOA fees / Condo fees / Service charge (sale only, region-dependent)
+        property_taxes: Property taxes (sale only, US/CA)
+        council_tax: Council tax (UK, sale or rent)
+        rates: Council rates (Australia, sale only)
+        strata_fees: Strata fees / Body corporate (Australia/Canada, sale only)
         
     Returns:
         Dictionary with:
@@ -66,10 +76,21 @@ def process_listing_request(
     print(f"Notes: {notes[:100] if notes else 'None'}...")
     print("=" * 80 + "\n")
     
-    # Step 1: Create workflow
+    # Step 1: Create workflow with tracing
     try:
-        workflow = create_workflow()
+        # Clear any previous trace metadata
+        clear_trace_metadata()
+        
+        # Set trace metadata for this request
+        set_trace_metadata("request_id", str(time.time()))
+        set_trace_metadata("address", address[:100] if address else None)
+        set_trace_metadata("listing_type", listing_type)
+        set_trace_metadata("price", price)
+        
+        workflow, tracer = create_workflow(enable_tracing=True)
         print("✓ Workflow initialized")
+        if tracer:
+            print("✓ Tracing enabled")
     except Exception as e:
         return {
             "success": False,
@@ -87,10 +108,11 @@ def process_listing_request(
         "listing_type": listing_type.strip().lower() if listing_type and listing_type.strip() else "",
         "price": float(price) if price is not None and price != "" else None,  # Preserve None for validation
         "notes": notes.strip() if notes and notes.strip() else None,  # Preserve None for optional field
+        "region": region.strip().upper() if region and region.strip() else "US",  # Default to US
         "errors": []
     }
     
-    # Add optional fields based on listing type
+    # Add optional fields based on listing type and region
     if listing_type.lower() == "rent":
         if billing_cycle:
             initial_state["billing_cycle"] = billing_cycle.strip()
@@ -98,18 +120,58 @@ def process_listing_request(
             initial_state["lease_term"] = lease_term.strip()
         if security_deposit is not None:
             initial_state["security_deposit"] = float(security_deposit)
+        # UK: Council tax can be for rentals too
+        if region.upper() == "UK" and council_tax is not None:
+            initial_state["council_tax"] = float(council_tax)
     elif listing_type.lower() == "sale":
-        if hoa_fees is not None:
+        # Region-specific fields
+        if region.upper() in ["US", "CA", "UK"] and hoa_fees is not None:
             initial_state["hoa_fees"] = float(hoa_fees)
-        if property_taxes is not None:
+        if region.upper() in ["US", "CA"] and property_taxes is not None:
             initial_state["property_taxes"] = float(property_taxes)
+        if region.upper() == "UK" and council_tax is not None:
+            initial_state["council_tax"] = float(council_tax)
+        if region.upper() == "AU" and rates is not None:
+            initial_state["rates"] = float(rates)
+        if region.upper() in ["AU", "CA"] and strata_fees is not None:
+            initial_state["strata_fees"] = float(strata_fees)
     
-    # Step 3: Execute workflow
+    # Step 3: Execute workflow with tracing
     try:
         print("Executing workflow...\n")
-        result_state = workflow.invoke(initial_state)
-        print("\n✓ Workflow execution completed\n")
+        
+        # Track total execution time
+        workflow_start_time = time.time()
+        
+        # Prepare config with tracer callback if available
+        config = {
+            "configurable": {
+                "thread_id": f"listing_{int(time.time())}"
+            }
+        }
+        
+        # Add tracer as callback if available
+        if tracer:
+            config["callbacks"] = [tracer]
+            print("[TRACE] Opik tracer attached to workflow execution")
+        
+        # Execute workflow
+        result_state = workflow.invoke(initial_state, config=config)
+        
+        # Calculate total execution time
+        workflow_end_time = time.time()
+        total_execution_time = workflow_end_time - workflow_start_time
+        
+        # Store timing in trace metadata
+        set_trace_metadata("total_execution_time", total_execution_time)
+        set_trace_metadata("workflow_completed", True)
+        
+        print(f"\n✓ Workflow execution completed in {total_execution_time:.3f}s\n")
+        print(f"[TRACE] Total execution time: {total_execution_time:.3f}s")
+        
     except Exception as e:
+        set_trace_metadata("workflow_error", str(e))
+        set_trace_metadata("workflow_completed", False)
         return {
             "success": False,
             "listing": None,
@@ -140,11 +202,15 @@ def process_listing_request(
         "formatted_listing": formatted_listing
     }
     
+    # Include trace metadata in response for debugging
+    trace_metadata = get_trace_metadata()
+    
     return {
         "success": success,
         "listing": listing_result if success else None,
         "errors": errors,
-        "state": result_state  # Include full state for debugging
+        "state": result_state,  # Include full state for debugging
+        "trace_metadata": trace_metadata  # Include trace metadata
     }
 
 

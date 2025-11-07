@@ -16,3 +16,6 @@ gradio>=4.0.0
 pytest>=7.4.0
 pytest-cov>=4.1.0
 
+# Observability & Tracing
+opik>=0.1.0
+

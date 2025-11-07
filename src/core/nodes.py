@@ -115,6 +115,9 @@ def validate_input_node(state: PropertyListingState) -> PropertyListingState:
     security_deposit = state.get("security_deposit")
     hoa_fees = state.get("hoa_fees")
     property_taxes = state.get("property_taxes")
+    council_tax = state.get("council_tax")
+    rates = state.get("rates")
+    strata_fees = state.get("strata_fees")
     
     # Perform comprehensive validation
     validation_errors = validate_input_fields(
@@ -127,6 +130,9 @@ def validate_input_node(state: PropertyListingState) -> PropertyListingState:
         security_deposit=security_deposit,
         hoa_fees=hoa_fees,
         property_taxes=property_taxes,
+        council_tax=council_tax,
+        rates=rates,
+        strata_fees=strata_fees,
     )
     
     # Add any validation errors to state
@@ -386,8 +392,11 @@ def generate_content_node(state: PropertyListingState) -> PropertyListingState:
             for category, items in state.get('key_amenities', {}).items():
                 print(f"    - {category}: {items} (length: {len(items) if items else 0})")
         
-        # Build comprehensive prompt with all available data
-        prompt = build_listing_generation_prompt(
+        # Build comprehensive prompt with all available data (with tracing)
+        from utils.tracing import trace_prompt_building, set_trace_metadata
+        
+        prompt, prompt_metrics = trace_prompt_building(
+            build_listing_generation_prompt,
             address=address,
             listing_type=listing_type,
             price=price,
@@ -398,12 +407,19 @@ def generate_content_node(state: PropertyListingState) -> PropertyListingState:
             neighborhood=state.get("neighborhood"),
             landmarks=state.get("landmarks"),
             key_amenities=state.get("key_amenities"),
+            region=state.get("region", "US"),
             billing_cycle=state.get("billing_cycle"),
             lease_term=state.get("lease_term"),
             security_deposit=state.get("security_deposit"),
             hoa_fees=state.get("hoa_fees"),
             property_taxes=state.get("property_taxes"),
+            council_tax=state.get("council_tax"),
+            rates=state.get("rates"),
+            strata_fees=state.get("strata_fees"),
         )
+        
+        # Store prompt building metrics
+        set_trace_metadata("prompt_building_metrics", prompt_metrics)
         
         # DEBUG: Log prompt sections (first 2000 chars to see structure)
         print(f"[DEBUG] Node 5: Prompt preview (first 2000 chars):")
@@ -419,9 +435,13 @@ def generate_content_node(state: PropertyListingState) -> PropertyListingState:
             reasoning_effort="minimal"
         )
         
-        
-        # Call LLM with prompt
-        llm_response = call_llm_with_prompt(llm, prompt, temperature=0.5)
+        # Call LLM with prompt (tracing is handled inside call_llm_with_prompt)
+        llm_response = call_llm_with_prompt(
+            llm, 
+            prompt, 
+            temperature=0.5,
+            model_name="gpt-5-mini"
+        )
         
         # Store raw output
         state["llm_raw_output"] = llm_response
@@ -582,6 +602,7 @@ def format_output_node(state: PropertyListingState) -> PropertyListingState:
             price_block=state["price_block"],
             seller_price=seller_price,  # Pass original seller price for display
             listing_type=listing_type,  # Pass listing type for dynamic labeling
+            region=state.get("region", "US"),  # Pass region for currency formatting
             remove_price_from_desc=True  # Safety net: remove price even if guardrails missed it
         )
         

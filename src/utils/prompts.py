@@ -7,6 +7,7 @@ title, description, and price_block fields.
 """
 
 from typing import Optional, Dict, Any, List
+from utils.region_config import get_region_config, get_currency_symbol, FieldType
 
 
 def build_listing_generation_prompt(
@@ -20,11 +21,15 @@ def build_listing_generation_prompt(
     neighborhood: Optional[str] = None,
     landmarks: Optional[List[str]] = None,
     key_amenities: Optional[Dict[str, List[str]]] = None,
+    region: Optional[str] = "US",
     billing_cycle: Optional[str] = None,
     lease_term: Optional[str] = None,
     security_deposit: Optional[float] = None,
     hoa_fees: Optional[float] = None,
     property_taxes: Optional[float] = None,
+    council_tax: Optional[float] = None,
+    rates: Optional[float] = None,
+    strata_fees: Optional[float] = None,
 ) -> str:
     """
     Build a comprehensive prompt for LLM to generate property listing content.
@@ -56,6 +61,12 @@ def build_listing_generation_prompt(
     final_address = normalized_address or address
     final_notes = normalized_notes or notes or ""
     
+    # Get region configuration
+    region = region.upper() if region else "US"
+    config = get_region_config(region)
+    currency_symbol = config["currency_symbol"]
+    currency = config["currency"]
+    
     # Build prompt sections
     prompt_parts = []
     
@@ -67,7 +78,8 @@ def build_listing_generation_prompt(
     prompt_parts.append("=== PROPERTY INFORMATION ===")
     prompt_parts.append(f"Address: {final_address}")
     prompt_parts.append(f"Listing Type: {listing_type.upper()}")
-    prompt_parts.append(f"Asking Price: ${price:,.2f}")
+    prompt_parts.append(f"Region: {config['region_name']}")
+    prompt_parts.append(f"Asking Price: {currency_symbol}{price:,.2f} ({currency})")
     
     if listing_type == "rent":
         if billing_cycle:
@@ -75,12 +87,30 @@ def build_listing_generation_prompt(
         if lease_term:
             prompt_parts.append(f"Lease Term: {lease_term}")
         if security_deposit is not None:
-            prompt_parts.append(f"Security Deposit: ${security_deposit:,.2f}")
+            # Get security deposit label from region config
+            security_label = "Security Deposit"
+            if FieldType.SECURITY_DEPOSIT in config["fields"]:
+                security_label = config["fields"][FieldType.SECURITY_DEPOSIT]["label"]
+            prompt_parts.append(f"{security_label}: {currency_symbol}{security_deposit:,.2f}")
+        # UK: Council tax can be for rentals
+        if region == "UK" and council_tax is not None:
+            prompt_parts.append(f"Council Tax: {currency_symbol}{council_tax:,.2f}/year")
     elif listing_type == "sale":
-        if hoa_fees is not None:
-            prompt_parts.append(f"HOA Fees: ${hoa_fees:,.2f}")
-        if property_taxes is not None:
-            prompt_parts.append(f"Annual Property Taxes: ${property_taxes:,.2f}")
+        # Region-specific sale fields
+        if region in ["US", "CA", "UK"] and hoa_fees is not None:
+            hoa_label = config["fields"].get(FieldType.HOA_FEES, {}).get("label", "HOA Fees")
+            hoa_unit = config["fields"].get(FieldType.HOA_FEES, {}).get("unit", "")
+            prompt_parts.append(f"{hoa_label}: {currency_symbol}{hoa_fees:,.2f}{'/' + hoa_unit.split('/')[-1] if '/' in hoa_unit else ''}")
+        if region in ["US", "CA"] and property_taxes is not None:
+            prompt_parts.append(f"Property Taxes: {currency_symbol}{property_taxes:,.2f}/year")
+        if region == "UK" and council_tax is not None:
+            prompt_parts.append(f"Council Tax: {currency_symbol}{council_tax:,.2f}/year")
+        if region == "AU" and rates is not None:
+            prompt_parts.append(f"Council Rates: {currency_symbol}{rates:,.2f}/year")
+        if region in ["AU", "CA"] and strata_fees is not None:
+            strata_label = config["fields"].get(FieldType.STRATA_FEES, {}).get("label", "Strata Fees")
+            strata_unit = config["fields"].get(FieldType.STRATA_FEES, {}).get("unit", "")
+            prompt_parts.append(f"{strata_label}: {currency_symbol}{strata_fees:,.2f}{'/' + strata_unit.split('/')[-1] if '/' in strata_unit else ''}")
     
     prompt_parts.append("")
     

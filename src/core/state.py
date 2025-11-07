@@ -71,6 +71,9 @@ class PropertyListingState(TypedDict, total=False):
     listing_type: Literal["sale", "rent"]
     """Listing type: "sale" or "rent". Required field."""
     
+    region: Optional[str]
+    """Region code (US, CA, UK, AU). Optional, defaults to US if not specified."""
+    
     # ========================================================================
     # Optional Input Fields
     # ========================================================================
@@ -91,12 +94,21 @@ class PropertyListingState(TypedDict, total=False):
     security_deposit: Optional[float]
     """Security deposit amount in USD. For rentals only."""
     
-    # Sale-specific optional fields
+    # Sale-specific optional fields (region-dependent)
     hoa_fees: Optional[float]
-    """HOA fees in USD. For sales only."""
+    """HOA fees / Condo fees / Service charge (region-dependent). For sales only."""
     
     property_taxes: Optional[float]
-    """Annual property taxes in USD. For sales only."""
+    """Property taxes / Council tax / Rates (region-dependent). For sales only."""
+    
+    council_tax: Optional[float]
+    """Council tax (UK only). Can be for sale or rent."""
+    
+    rates: Optional[float]
+    """Council rates (Australia only). For sales only."""
+    
+    strata_fees: Optional[float]
+    """Strata fees / Body corporate (Australia/Canada). For sales only."""
     
     # ========================================================================
     # Processing Fields (set by normalization node)

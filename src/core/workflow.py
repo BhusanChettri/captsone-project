@@ -14,8 +14,14 @@ property listing generation pipeline. The workflow consists of 7 sequential node
 
 The workflow is linear (sequential) - each node processes the state and passes
 it to the next node.
+
+Observability:
+- Integrated with Opik for tracing and observability
+- Tracks web search calls, LLM calls, and node execution times
+- Captures time-to-first-token (TTFT) and total generation time
 """
 
+from typing import Any, Tuple
 from langgraph.graph import StateGraph, START, END
 from core.state import PropertyListingState
 from core.nodes import (
@@ -27,6 +33,7 @@ from core.nodes import (
     output_guardrail_node,
     format_output_node,
 )
+from utils.tracing import initialize_tracer, set_tracer, get_tracer
 
 
 def should_continue_workflow(state: PropertyListingState) -> str:
@@ -50,24 +57,35 @@ def should_continue_workflow(state: PropertyListingState) -> str:
     return "continue"
 
 
-def create_workflow() -> StateGraph:
+def create_workflow(enable_tracing: bool = True) -> Tuple[Any, Any]:
     """
-    Create and compile the property listing workflow graph.
+    Create and compile the property listing workflow graph with Opik tracing.
     
     Steps:
     1. Create StateGraph with PropertyListingState schema
     2. Add all workflow nodes
     3. Add edges connecting nodes sequentially with conditional routing
     4. Compile the graph
+    5. Initialize Opik tracer for observability
     
+    Args:
+        enable_tracing: Whether to enable Opik tracing (default: True)
+        
     Returns:
-        Compiled LangGraph workflow ready for execution
+        Tuple of (compiled_workflow, tracer)
+        - compiled_workflow: Compiled LangGraph workflow ready for execution
+        - tracer: OpikTracer instance (None if tracing disabled or unavailable)
         
     Workflow Flow:
         START → input_guardrail → [check errors] → validate_input → [check errors] → 
         normalize_text → enrich_data → generate_content → output_guardrail → format_output → END
         
     If errors are detected at input_guardrail or validate_input, workflow stops immediately.
+    
+    Observability:
+        - Opik tracer is initialized and attached to the workflow
+        - All node executions, web searches, and LLM calls are traced
+        - Metrics include execution times, TTFT, and total generation time
     """
     # Step 1: Create StateGraph with state schema
     workflow = StateGraph(PropertyListingState)
@@ -117,5 +135,19 @@ def create_workflow() -> StateGraph:
     # Step 4: Compile the graph
     compiled_workflow = workflow.compile()
     
-    return compiled_workflow
+    # Step 5: Initialize Opik tracer for observability
+    tracer = None
+    if enable_tracing:
+        try:
+            tracer = initialize_tracer(project_name="property-listing-system")
+            if tracer:
+                set_tracer(tracer)
+                print("[TRACE] Opik tracer initialized successfully")
+            else:
+                print("[TRACE] Opik tracer initialization failed (tracing disabled)")
+        except Exception as e:
+            print(f"[TRACE] Failed to initialize Opik tracer: {e}")
+            print("[TRACE] Continuing without tracing")
+    
+    return compiled_workflow, tracer
 

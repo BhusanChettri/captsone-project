@@ -518,11 +518,17 @@ def perform_tavily_search(
     max_results: int = 3
 ) -> List[Dict[str, Any]]:
     """
-    Perform a Tavily web search.
+    Perform a Tavily web search with tracing.
     
     This function executes an actual web search via the Tavily API.
     The search_tool.invoke() call makes an HTTP request to Tavily's servers
     which then searches the web and returns results.
+    
+    All web searches are traced for observability, including:
+    - Query string
+    - Execution time
+    - Result count
+    - Success/failure status
     
     Args:
         query: Search query string
@@ -537,19 +543,29 @@ def perform_tavily_search(
         results in one HTTP request to Tavily's API.
     """
     try:
-        # THIS IS WHERE THE ACTUAL WEB SEARCH HAPPENS
-        # search_tool.invoke() makes an HTTP request to Tavily API
-        # which searches the web and returns results
-        results = search_tool.invoke({"query": query})
+        # Import tracing utilities
+        from utils.tracing import trace_web_search, set_trace_metadata
         
-        # TavilySearch returns a dictionary with 'results' key containing list of results
-        if isinstance(results, dict) and "results" in results:
-            return results["results"][:max_results]
-        # Fallback: if it's already a list
-        if isinstance(results, list):
-            return results[:max_results]
-        return []
-    except Exception:
+        # Use tracing wrapper to track web search execution
+        results_list, metrics = trace_web_search(
+            search_tool=search_tool,
+            query=query,
+            max_results=max_results
+        )
+        
+        # Store web search metrics in trace metadata
+        # Use a list to track multiple searches
+        from utils.tracing import get_trace_metadata
+        existing_metadata = get_trace_metadata()
+        existing_searches = existing_metadata.get("web_searches", [])
+        existing_searches.append(metrics)
+        set_trace_metadata("web_searches", existing_searches)
+        
+        return results_list
+    except Exception as e:
+        # Store error in trace metadata
+        from utils.tracing import set_trace_metadata
+        set_trace_metadata("web_search_error", str(e))
         # Return empty list on error (enrichment is optional)
         return []
 
