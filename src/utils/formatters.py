@@ -132,25 +132,28 @@ def format_listing(
     title: str,
     description: str,
     price_block: str,
+    seller_price: Optional[float] = None,
+    listing_type: Optional[str] = None,
     remove_price_from_desc: bool = True
 ) -> str:
     """
-    Format final property listing with proper structure.
+    Format final property listing with organized structure.
     
-    Creates a well-formatted listing with:
-    - Title (prominent)
-    - Description (formatted paragraphs)
-    - Price block (clearly separated)
-    - Disclaimer
+    Creates a well-formatted listing with organized sections:
+    - Title: Generated listing title
+    - Listing Details: Generated description
+    - Seller Asking Price: Original price from user input
+    - Predicted Price: Currently same as seller price (will be enhanced later)
     
     Args:
         title: Listing title
         description: Listing description
-        price_block: Formatted price information
+        price_block: Formatted price information (from LLM)
+        seller_price: Original asking price from user (for Seller Asking Price section)
         remove_price_from_desc: If True, remove price from description (safety net)
         
     Returns:
-        Formatted listing string ready for display
+        Formatted listing string ready for display with organized sections
     """
     # Clean inputs
     title = clean_text(title) if title else ""
@@ -162,27 +165,81 @@ def format_listing(
         description = remove_price_from_description(description)
         description = clean_text(description)  # Re-clean after price removal
     
-    # Build formatted listing
+    # Build formatted listing with organized sections
     parts = []
     
-    # Title (prominent, on its own line)
+    # Title section
     if title:
+        parts.append("**Title:**")
         parts.append(title)
         parts.append("")  # Empty line after title
     
-    # Description (formatted as paragraphs)
+    # Listing Details section
     if description:
+        parts.append("**Listing Details:**")
         parts.append(description)
         parts.append("")  # Empty line after description
     
-    # Price block (clearly separated)
-    if price_block:
-        parts.append(price_block)
-        parts.append("")  # Empty line after price
+    # Price section (label changes based on listing type)
+    if seller_price is not None:
+        # Use appropriate label based on listing type
+        if listing_type and listing_type.lower() == "rent":
+            price_label = "**Monthly Rent:**"
+        else:
+            price_label = "**Seller Asking Price:**"
+        
+        parts.append(price_label)
+        parts.append(f"${seller_price:,.2f}")
+        
+        # Extract additional pricing details from price_block (HOA fees, taxes, deposit, etc.)
+        # These are already in price_block but we want to show them as sub-items with bullet points
+        additional_details = []
+        if price_block and price_block.strip():
+            # Look for additional details in price_block (lines that don't contain the main price)
+            price_block_lines = price_block.split('\n')
+            for line in price_block_lines:
+                line = line.strip()
+                if not line:
+                    continue
+                # Skip if this line is just the main price
+                if seller_price is not None:
+                    # Check if line contains just the price (with or without $ and formatting)
+                    price_str = f"${seller_price:,.2f}"
+                    price_str_no_comma = f"${seller_price:.2f}"
+                    if line == price_str or line == price_str_no_comma or line == str(int(seller_price)):
+                        continue
+                    # Check if line starts with price (like "$234,560.00 HOA Fees...")
+                    if line.startswith(price_str) or line.startswith(price_str_no_comma):
+                        # Extract the part after the price
+                        remaining = line.replace(price_str, "").replace(price_str_no_comma, "").strip()
+                        if remaining:
+                            additional_details.append(remaining)
+                        continue
+                # If line contains keywords for additional details, include it
+                # Keywords for sales: HOA, taxes
+                # Keywords for rentals: security deposit, lease, billing cycle
+                rental_keywords = ["security deposit", "deposit", "lease", "billing cycle", "lease term", "term"]
+                sale_keywords = ["hoa", "tax", "property tax", "taxes"]
+                common_keywords = ["fee", "fees", "month", "year", "weekly", "monthly"]
+                
+                line_lower = line.lower()
+                if any(keyword in line_lower for keyword in rental_keywords + sale_keywords + common_keywords):
+                    additional_details.append(line)
+        
+        # Add additional details as sub-items with bullet points
+        if additional_details:
+            for detail in additional_details:
+                parts.append(f"  * {detail}")
+        
+        parts.append("")  # Empty line after seller price section
     
-    # Disclaimer (standard real estate disclaimer)
-    disclaimer = "All information deemed reliable but not guaranteed. Equal Housing Opportunity."
-    parts.append(disclaimer)
+    # Predicted Price section (for now, same as seller price)
+    # TODO: In future iterations, this will be calculated by price analysis model
+    if seller_price is not None:
+        parts.append("**Predicted Price:**")
+        predicted_price = seller_price  # For now, use seller price as predicted
+        parts.append(f"${predicted_price:,.2f}")
+        parts.append("")  # Empty line after predicted price
     
     # Join all parts with newlines
     formatted_listing = "\n".join(parts)

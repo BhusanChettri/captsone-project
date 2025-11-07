@@ -92,6 +92,7 @@ def build_listing_generation_prompt(
     
     # Location & Neighborhood Section
     location_info = []
+    print(f"[DEBUG] Prompt Builder: Checking location data - zip_code: {zip_code} (truthy: {bool(zip_code)}), neighborhood: {neighborhood} (truthy: {bool(neighborhood)})")
     if zip_code:
         location_info.append(f"ZIP Code: {zip_code}")
     if neighborhood:
@@ -101,24 +102,41 @@ def build_listing_generation_prompt(
         prompt_parts.append("=== LOCATION & NEIGHBORHOOD ===")
         prompt_parts.append("\n".join(location_info))
         prompt_parts.append("")
+        print(f"[DEBUG] Prompt Builder: ✅ Added LOCATION & NEIGHBORHOOD section with: {location_info}")
+    else:
+        print(f"[DEBUG] Prompt Builder: ❌ Skipped LOCATION & NEIGHBORHOOD section (no data)")
     
     # Nearby Landmarks Section
+    print(f"[DEBUG] Prompt Builder: Checking landmarks - value: {landmarks}, type: {type(landmarks)}, truthy: {bool(landmarks)}")
     if landmarks:
         prompt_parts.append("=== NEARBY LANDMARKS ===")
         for landmark in landmarks:
             prompt_parts.append(f"- {landmark}")
         prompt_parts.append("")
+        print(f"[DEBUG] Prompt Builder: ✅ Added NEARBY LANDMARKS section with {len(landmarks)} landmarks")
+    else:
+        print(f"[DEBUG] Prompt Builder: ❌ Skipped NEARBY LANDMARKS section (no data or empty list)")
     
     # Key Amenities Section
+    print(f"[DEBUG] Prompt Builder: Checking key_amenities - value: {key_amenities}, type: {type(key_amenities)}, truthy: {bool(key_amenities)}")
     if key_amenities:
+        amenities_added = []
         prompt_parts.append("=== KEY AMENITIES ===")
         for category, items in key_amenities.items():
+            print(f"[DEBUG] Prompt Builder:   - Category '{category}': {items} (length: {len(items) if items else 0}, truthy: {bool(items)})")
             if items:
                 category_name = category.capitalize()
                 prompt_parts.append(f"{category_name}:")
                 for item in items:
                     prompt_parts.append(f"  - {item}")
+                amenities_added.append(f"{category}({len(items)} items)")
         prompt_parts.append("")
+        if amenities_added:
+            print(f"[DEBUG] Prompt Builder: ✅ Added KEY AMENITIES section with: {', '.join(amenities_added)}")
+        else:
+            print(f"[DEBUG] Prompt Builder: ⚠️ Added KEY AMENITIES section header but no items (all categories empty)")
+    else:
+        print(f"[DEBUG] Prompt Builder: ❌ Skipped KEY AMENITIES section (no data or empty dict)")
     
     # Instructions Section
     prompt_parts.append("=== INSTRUCTIONS ===")
@@ -128,7 +146,12 @@ def build_listing_generation_prompt(
     prompt_parts.append("   - Create a compelling, SEO-friendly title (max 100 characters)")
     prompt_parts.append("   - Include key features (bedrooms, bathrooms, square footage if mentioned)")
     prompt_parts.append("   - Mention location/neighborhood if available")
-    prompt_parts.append("   - Example: 'Beautiful 3BR/2BA Home in Downtown Manhattan'")
+    if listing_type == "rent":
+        prompt_parts.append("   - For rentals: Include 'For Rent' or 'Available for Rent' in title")
+        prompt_parts.append("   - Example: 'Beautiful 3BR/2BA Apartment for Rent in Downtown Manhattan'")
+    else:
+        prompt_parts.append("   - For sales: Include 'For Sale' or focus on property type")
+        prompt_parts.append("   - Example: 'Beautiful 3BR/2BA Home in Downtown Manhattan'")
     prompt_parts.append("")
     prompt_parts.append("2. DESCRIPTION:")
     prompt_parts.append("   - Write professional, engaging prose (2-4 paragraphs)")
@@ -137,6 +160,24 @@ def build_listing_generation_prompt(
     prompt_parts.append("   - Use descriptive, appealing language")
     prompt_parts.append("   - DO NOT include price information in the description")
     prompt_parts.append("   - Make it SEO-friendly and suitable for real estate websites")
+    
+    # Adapt description style based on listing type
+    if listing_type == "rent":
+        prompt_parts.append("   - RENTAL-SPECIFIC: Adapt language for rental listings:")
+        prompt_parts.append("     * Use phrases like 'available for rent', 'perfect rental opportunity', 'ideal for renters'")
+        prompt_parts.append("     * Emphasize lifestyle benefits, convenience, and move-in ready features")
+        prompt_parts.append("     * Highlight transportation access, nearby conveniences, and rental-friendly amenities")
+        prompt_parts.append("     * Mention lease terms if provided (e.g., '12-month lease available')")
+        prompt_parts.append("     * Use present tense ('features', 'is located', 'offers')")
+        prompt_parts.append("     * Focus on what makes it a great place to live NOW")
+    else:  # sale
+        prompt_parts.append("   - SALE-SPECIFIC: Adapt language for sale listings:")
+        prompt_parts.append("     * Use phrases like 'for sale', 'investment opportunity', 'perfect home'")
+        prompt_parts.append("     * Emphasize long-term value, equity potential, and ownership benefits")
+        prompt_parts.append("     * Highlight schools, property taxes, HOA benefits (important for buyers)")
+        prompt_parts.append("     * Mention neighborhood growth, investment potential, and property value")
+        prompt_parts.append("     * Can use future-oriented language ('will appreciate', 'potential for growth')")
+        prompt_parts.append("     * Focus on what makes it a great long-term investment")
     prompt_parts.append("")
     prompt_parts.append("3. PRICE_BLOCK:")
     if listing_type == "rent":
