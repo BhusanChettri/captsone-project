@@ -10,6 +10,7 @@ These validations are separate from guardrail safety checks and focus on:
 """
 
 from typing import Optional, List, Literal
+import re
 
 
 # ============================================================================
@@ -146,15 +147,27 @@ def validate_non_negative_number(
 
 def validate_address(address: Optional[str]) -> Optional[str]:
     """
-    Validate address format (basic validation).
+    Validate address format with enhanced checks for completeness.
     
-    This performs basic format checks. More sophisticated validation
+    Address is the MOST IMPORTANT input for generating accurate listings.
+    This validation ensures the address has sufficient information to:
+    - Enable accurate web search enrichment
+    - Generate location-specific listing content
+    - Provide context for price analysis (future iterations)
+    
+    This performs comprehensive format checks. More sophisticated validation
     (like geocoding) happens in enrichment step.
     
     Accepts various address formats:
-    - Traditional: "123 Main Street, City, State"
-    - Building/Complex: "Building Name, Area, City" (no street number required)
-    - International: Various formats common globally
+    - Traditional US: "123 Main Street, City, State ZIP"
+    - Building/Complex: "Building Name, Area, City, State" (no street number required)
+    - International: "Street Name, City, Country" or "Building, District, City"
+    
+    Validation checks:
+    1. Required field (not empty)
+    2. Minimum length (5 characters)
+    3. Contains alphanumeric content
+    4. Has sufficient structure (recommends city/state/location info)
     
     Args:
         address: Address to validate
@@ -170,18 +183,68 @@ def validate_address(address: Optional[str]) -> Optional[str]:
     address_stripped = address.strip()  # type: ignore
     
     if len(address_stripped) < 5:
-        return "address is too short (minimum 5 characters)"
-    
-    # Address validation: Accept addresses with or without street numbers
-    # Many valid addresses don't have street numbers (building names, complexes, etc.)
-    # Examples: "Mayfair Residency, Business Bay, Dubai" or "Central Park Tower, NYC"
-    # We just need to ensure it's not empty and has reasonable length
+        return "address is too short (minimum 5 characters). Please provide a complete address for accurate listing generation."
     
     # Additional check: Address should contain at least some alphanumeric content
     # and not be just special characters
     has_alphanumeric = any(char.isalnum() for char in address_stripped)
     if not has_alphanumeric:
         return "address must contain letters or numbers"
+    
+    # Enhanced validation: Check for address completeness
+    # Address should ideally contain location information (city, state, country, etc.)
+    # This is crucial for accurate web search and listing generation
+    
+    address_lower = address_stripped.lower()
+    
+    # Check for common address components that indicate completeness
+    # These are indicators that address has sufficient location information
+    has_location_indicators = False
+    
+    # Check for commas (indicates structured address with multiple components)
+    # Examples: "123 Main St, New York, NY" or "Building Name, Area, City"
+    if ',' in address_stripped:
+        has_location_indicators = True
+    
+    # Check for common location keywords (city, state, country indicators)
+    location_keywords = [
+        # US states (common abbreviations and full names)
+        'ny', 'ca', 'tx', 'fl', 'il', 'pa', 'oh', 'ga', 'nc', 'mi',
+        'new york', 'california', 'texas', 'florida', 'illinois',
+        # Common location terms
+        'city', 'state', 'street', 'st', 'avenue', 'ave', 'road', 'rd',
+        'boulevard', 'blvd', 'drive', 'dr', 'lane', 'ln', 'way', 'court', 'ct',
+        # International indicators
+        'district', 'province', 'region', 'country', 'postal', 'zip',
+        # Building/complex indicators (still valid addresses)
+        'tower', 'residency', 'residence', 'building', 'complex', 'apartment', 'apt',
+        'condo', 'condominium', 'villa', 'estate', 'park', 'plaza', 'center', 'centre'
+    ]
+    
+    # Check if address contains location keywords
+    if any(keyword in address_lower for keyword in location_keywords):
+        has_location_indicators = True
+    
+    # Check for ZIP/postal code pattern (5 digits or 5+4 format)
+    zip_pattern = r'\b\d{5}(-\d{4})?\b'
+    if re.search(zip_pattern, address_stripped):
+        has_location_indicators = True
+    
+    # If address doesn't have clear location indicators, it might be incomplete
+    # However, we don't fail validation - we just note it might affect accuracy
+    # Some valid addresses might not match these patterns (e.g., "123 Main St" alone)
+    # The enrichment step will attempt to find more information via web search
+    
+    # Minimum requirement: Address should have at least 2 words (basic structure)
+    # This catches cases like "123" or "Main" which are too vague
+    word_count = len(address_stripped.split())
+    if word_count < 2:
+        return "address appears incomplete. Please provide a complete address including street name and city/location for accurate listing generation."
+    
+    # Address validation: Accept addresses with or without street numbers
+    # Many valid addresses don't have street numbers (building names, complexes, etc.)
+    # Examples: "Mayfair Residency, Business Bay, Dubai" or "Central Park Tower, NYC"
+    # We accept these as valid, but recommend including city/state for better accuracy
     
     return None
 

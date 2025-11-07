@@ -246,7 +246,7 @@ def enrich_data_node(state: PropertyListingState) -> PropertyListingState:
         search_tool = TavilySearch(
             max_results=2,  # Optimized: Reduced from 3 to 2 (sufficient for extraction)
             include_answer=True,
-            include_raw_content=True,  # We need raw content for our regex extraction
+            include_raw_content=False,  # We need raw content for our regex extraction
             include_images=False,
             search_depth="advanced",
         )
@@ -265,20 +265,50 @@ def enrich_data_node(state: PropertyListingState) -> PropertyListingState:
             search_tool=search_tool
         )
         
+        # DEBUG: Log what enrichment_data contains
+        print(f"[DEBUG] Node 4: Enrichment data returned:")
+        print(f"  - zip_code: {enrichment_data.get('zip_code')} (type: {type(enrichment_data.get('zip_code'))})")
+        print(f"  - neighborhood: {enrichment_data.get('neighborhood')} (type: {type(enrichment_data.get('neighborhood'))})")
+        print(f"  - landmarks: {enrichment_data.get('landmarks')} (type: {type(enrichment_data.get('landmarks'))}, length: {len(enrichment_data.get('landmarks', []))})")
+        print(f"  - key_amenities: {enrichment_data.get('key_amenities')} (type: {type(enrichment_data.get('key_amenities'))})")
+        if enrichment_data.get('key_amenities'):
+            for category, items in enrichment_data.get('key_amenities', {}).items():
+                print(f"    - {category}: {items} (length: {len(items) if items else 0})")
+        
         # Store enrichment data in state
+        stored_items = []
         if enrichment_data.get("zip_code"):
             state["zip_code"] = enrichment_data["zip_code"]
+            stored_items.append(f"zip_code={enrichment_data['zip_code']}")
+        else:
+            print(f"[DEBUG] Node 4: zip_code NOT stored (value: {enrichment_data.get('zip_code')}, truthy: {bool(enrichment_data.get('zip_code'))})")
         
         if enrichment_data.get("neighborhood"):
             state["neighborhood"] = enrichment_data["neighborhood"]
+            stored_items.append(f"neighborhood={enrichment_data['neighborhood']}")
+        else:
+            print(f"[DEBUG] Node 4: neighborhood NOT stored (value: {enrichment_data.get('neighborhood')}, truthy: {bool(enrichment_data.get('neighborhood'))})")
         
         if enrichment_data.get("landmarks"):
             state["landmarks"] = enrichment_data["landmarks"]
+            stored_items.append(f"landmarks={enrichment_data['landmarks']}")
+        else:
+            landmarks_val = enrichment_data.get("landmarks")
+            print(f"[DEBUG] Node 4: landmarks NOT stored (value: {landmarks_val}, type: {type(landmarks_val)}, truthy: {bool(landmarks_val)})")
         
         if enrichment_data.get("key_amenities"):
             state["key_amenities"] = enrichment_data["key_amenities"]
+            stored_items.append(f"key_amenities={enrichment_data['key_amenities']}")
+        else:
+            key_amenities_val = enrichment_data.get("key_amenities")
+            print(f"[DEBUG] Node 4: key_amenities NOT stored (value: {key_amenities_val}, type: {type(key_amenities_val)}, truthy: {bool(key_amenities_val)})")
         
-        print(f"[DEBUG] Node 4: Enrichment completed - ZIP: {enrichment_data.get('zip_code', 'N/A')}, Neighborhood: {enrichment_data.get('neighborhood', 'N/A')}")
+        print(f"[DEBUG] Node 4: Enrichment data stored in state: {', '.join(stored_items) if stored_items else 'NONE'}")
+        print(f"[DEBUG] Node 4: Final state enrichment fields:")
+        print(f"  - state['zip_code']: {state.get('zip_code')}")
+        print(f"  - state['neighborhood']: {state.get('neighborhood')}")
+        print(f"  - state['landmarks']: {state.get('landmarks')}")
+        print(f"  - state['key_amenities']: {state.get('key_amenities')}")
     
     except ValueError as e:
         # Missing API key or configuration error
@@ -346,6 +376,16 @@ def generate_content_node(state: PropertyListingState) -> PropertyListingState:
         elif os.getenv("OPENAI_API_KEY"):
             print("[DEBUG] Node 5: OPENAI_API_KEY found in environment")
         
+        # DEBUG: Log what enrichment data is retrieved from state
+        print(f"[DEBUG] Node 5: Retrieving enrichment data from state:")
+        print(f"  - state.get('zip_code'): {state.get('zip_code')} (type: {type(state.get('zip_code'))})")
+        print(f"  - state.get('neighborhood'): {state.get('neighborhood')} (type: {type(state.get('neighborhood'))})")
+        print(f"  - state.get('landmarks'): {state.get('landmarks')} (type: {type(state.get('landmarks'))}, length: {len(state.get('landmarks', [])) if state.get('landmarks') else 'N/A'})")
+        print(f"  - state.get('key_amenities'): {state.get('key_amenities')} (type: {type(state.get('key_amenities'))})")
+        if state.get('key_amenities'):
+            for category, items in state.get('key_amenities', {}).items():
+                print(f"    - {category}: {items} (length: {len(items) if items else 0})")
+        
         # Build comprehensive prompt with all available data
         prompt = build_listing_generation_prompt(
             address=address,
@@ -364,6 +404,12 @@ def generate_content_node(state: PropertyListingState) -> PropertyListingState:
             hoa_fees=state.get("hoa_fees"),
             property_taxes=state.get("property_taxes"),
         )
+        
+        # DEBUG: Log prompt sections (first 2000 chars to see structure)
+        print(f"[DEBUG] Node 5: Prompt preview (first 2000 chars):")
+        print(prompt[:2000])
+        if len(prompt) > 2000:
+            print(f"[DEBUG] Node 5: ... (prompt continues, total length: {len(prompt)} chars)")
         
         # Initialize LLM (use environment variables for API keys)
         # Default to gpt-4o-mini for cost-effectiveness
@@ -525,11 +571,17 @@ def format_output_node(state: PropertyListingState) -> PropertyListingState:
         if state["price_block"]:
             print(f"[DEBUG] Node 7: Formatted price_block: {state['price_block']}")
         
-        # Create final formatted listing with proper structure
+        # Get original seller price and listing type for display
+        seller_price = state.get("price")
+        listing_type = state.get("listing_type")
+        
+        # Create final formatted listing with organized structure
         formatted_listing = format_listing(
             title=state["title"],
             description=state["description"],
             price_block=state["price_block"],
+            seller_price=seller_price,  # Pass original seller price for display
+            listing_type=listing_type,  # Pass listing type for dynamic labeling
             remove_price_from_desc=True  # Safety net: remove price even if guardrails missed it
         )
         

@@ -78,10 +78,10 @@ def build_neighborhood_search_query(
     listing_type: Optional[str] = None
 ) -> str:
     """
-    Build search query for neighborhood and ZIP code information.
+    Build search query for neighborhood information.
     
-    Intelligently combines address with context from notes and listing type
-    to create a more targeted search query.
+    Only searches for neighborhood if it's not already in the address.
+    ZIP code is NOT searched - it should come from address parsing.
     
     Args:
         address: Property address
@@ -94,15 +94,8 @@ def build_neighborhood_search_query(
     # Start with address
     query_parts = [address]
     
-    # Add neighborhood/location keywords
-    query_parts.append("neighborhood zip code location")
-    
-    # If notes mention a specific area/neighborhood, include it
-    if notes:
-        keywords = extract_keywords_from_notes(notes)
-        location_keywords = [k for k in keywords if k in ["near", "close to", "downtown", "uptown", "midtown", "neighborhood"]]
-        if location_keywords:
-            query_parts.extend(location_keywords[:2])  # Add top 2 location keywords
+    # Add neighborhood keywords (not ZIP code - that comes from address)
+    query_parts.append("neighborhood area")
     
     query = " ".join(query_parts)
     return query.strip()
@@ -200,49 +193,106 @@ def build_amenities_search_query(
     return query.strip()
 
 
-def build_combined_amenities_search_query(
+def build_amenities_search_query(
     address: str,
+    amenity_type: str,
     notes: str = "",
     listing_type: Optional[str] = None
 ) -> str:
     """
-    Build combined search query for key amenities (schools + transportation).
+    Build search query for specific amenity type.
     
-    This is an optimized query that combines the most important amenities
-    into a single search to reduce API calls and latency.
-    
-    Prioritizes based on listing_type:
-    - Rentals: Transportation + Schools
-    - Sales: Schools + Transportation
+    Focuses on finding actual places/names, not generic information.
+    Searches for: schools, supermarkets, parks, transportation.
     
     Args:
         address: Property address
-        notes: Normalized notes (optional, may mention specific amenities)
+        amenity_type: Type of amenity ("schools", "supermarkets", "parks", "transportation")
+        notes: Normalized notes (optional, to check if already mentioned)
         listing_type: "sale" or "rent" (optional, affects query focus)
         
     Returns:
-        Combined search query string
+        Search query string
     """
     query_parts = [address]
     
-    # Always include schools and transportation (most important amenities)
-    if listing_type == "rent":
-        # For rentals, transportation is more important
-        query_parts.append("transportation subway metro bus public transit")
-        query_parts.append("schools education")
+    # Build specific query based on amenity type
+    if amenity_type == "schools":
+        query_parts.append("schools near")
+    elif amenity_type == "supermarkets":
+        query_parts.append("supermarkets grocery stores near")
+    elif amenity_type == "parks":
+        query_parts.append("parks near")
+    elif amenity_type == "transportation":
+        query_parts.append("transportation subway bus metro near")
     else:
-        # For sales, schools are more important
-        query_parts.append("schools education")
-        query_parts.append("transportation subway metro bus public transit")
-    
-    # Add context from notes if available
-    if notes:
-        notes_lower = notes.lower()
-        if any(keyword in notes_lower for keyword in ["school", "transportation", "subway", "metro", "bus"]):
-            query_parts.append("nearby")
+        query_parts.append(f"{amenity_type} near")
     
     query = " ".join(query_parts)
     return query.strip()
+
+
+# ============================================================================
+# Address Parsing (ZIP Code Extraction)
+# ============================================================================
+
+def parse_zip_code_from_address(address: str) -> Optional[str]:
+    """
+    Parse ZIP code from user's address input.
+    
+    ZIP code should come from the address, not from web search.
+    This function extracts it if present.
+    
+    Args:
+        address: Property address string
+        
+    Returns:
+        ZIP code string if found, None otherwise
+    """
+    if not address:
+        return None
+    
+    # Pattern: 5 digits (optionally followed by -4 digits)
+    # Look for ZIP code at the end of address (common format: "City, ST ZIP")
+    zip_pattern = r'\b(\d{5})(?:-\d{4})?\b'
+    
+    # Try to find ZIP code (usually at the end)
+    matches = re.findall(zip_pattern, address)
+    if matches:
+        # Return the last match (most likely the actual ZIP code)
+        return matches[-1]
+    
+    return None
+
+
+def check_amenity_in_notes(notes: str, amenity_type: str) -> bool:
+    """
+    Check if a specific amenity type is already mentioned in user's notes.
+    
+    This helps avoid redundant web searches for amenities already provided by user.
+    
+    Args:
+        notes: User's notes/description
+        amenity_type: Type of amenity to check ("schools", "supermarkets", "parks", "transportation")
+        
+    Returns:
+        True if amenity type is mentioned, False otherwise
+    """
+    if not notes:
+        return False
+    
+    notes_lower = notes.lower()
+    
+    # Keywords for each amenity type
+    keywords = {
+        "schools": ["school", "elementary", "high school", "academy", "university", "college"],
+        "supermarkets": ["supermarket", "grocery", "store", "market", "whole foods", "trader joe", "walmart", "target"],
+        "parks": ["park", "playground", "recreation", "green space"],
+        "transportation": ["subway", "metro", "bus", "train", "station", "transit", "transportation", "line"]
+    }
+    
+    amenity_keywords = keywords.get(amenity_type, [])
+    return any(keyword in notes_lower for keyword in amenity_keywords)
 
 
 # ============================================================================
@@ -314,6 +364,9 @@ def extract_neighborhood(search_results: List[Dict[str, Any]], address: str) -> 
                     # Return first match that looks like a neighborhood name
                     for match in matches:
                         neighborhood = match.strip()
+                        # Clean up newlines and extra whitespace
+                        neighborhood = re.sub(r'\s+', ' ', neighborhood)  # Normalize whitespace
+                        neighborhood = neighborhood.strip()
                         # Filter out common false positives
                         if len(neighborhood) > 3 and len(neighborhood) < 50:
                             # Exclude common words that aren't neighborhoods
@@ -374,50 +427,83 @@ def extract_amenities(
     """
     Extract amenities of a specific type from search results.
     
+    Improved extraction to get actual names, filtering out HTML artifacts
+    and generic text.
+    
     Args:
         search_results: List of search result dictionaries from Tavily
-        amenity_type: Type of amenity ("schools", "parks", "shopping", "transportation")
+        amenity_type: Type of amenity ("schools", "supermarkets", "parks", "transportation")
         max_items: Maximum number of items to return
         
     Returns:
-        List of amenity names
+        List of clean amenity names
     """
     amenities = []
     
-    # Patterns for different amenity types
+    # Patterns for different amenity types (improved to capture actual names)
     patterns = {
         "schools": [
-            r'([A-Z][a-zA-Z\s]+?)\s+(?:School|Elementary|High School|Academy)',
-            r'(?:PS|Public School)\s+(\d+)',
+            r'([A-Z][a-zA-Z0-9\s&\'-]+?)\s+(?:School|Elementary|High School|Academy|Middle School)',
+            r'(?:PS|Public School|P\.S\.)\s+(\d+)',
+            r'([A-Z][a-zA-Z\s]+?)\s+Elementary',
+            r'([A-Z][a-zA-Z\s]+?)\s+High',
+        ],
+        "supermarkets": [
+            r'([A-Z][a-zA-Z0-9\s&\'-]+?)\s+(?:Supermarket|Grocery|Market|Whole Foods|Trader Joe|Walmart|Target|Kroger|Safeway)',
+            r'(?:Whole Foods|Trader Joe\'s?|Walmart|Target|Kroger|Safeway|Stop & Shop)',
         ],
         "parks": [
-            r'([A-Z][a-zA-Z\s]+?)\s+Park',
-        ],
-        "shopping": [
-            r'([A-Z][a-zA-Z\s]+?)\s+(?:Mall|Shopping Center|Plaza)',
+            r'([A-Z][a-zA-Z0-9\s&\'-]+?)\s+Park',
+            r'([A-Z][a-zA-Z\s]+?)\s+Playground',
+            r'([A-Z][a-zA-Z\s]+?)\s+Recreation\s+Area',
         ],
         "transportation": [
             r'(?:Subway|Metro|Bus)\s+(?:Line|Station):\s*([A-Z0-9\s,]+)',
             r'([A-Z0-9]+)\s+(?:line|station)',
+            r'(?:near|at)\s+([A-Z][a-zA-Z\s]+?)\s+(?:Subway|Metro|Bus)\s+Station',
         ],
     }
+    
+    # Words to filter out (HTML artifacts, generic text)
+    filter_words = [
+        "overview", "website", "contacts", "information", "school website",
+        "click", "here", "more", "details", "page", "home", "about",
+        "contact", "menu", "navigation", "search", "login", "sign up"
+    ]
     
     pattern_list = patterns.get(amenity_type, [])
     
     for result in search_results:
-        content = result.get("content", "")
-        title = result.get("title", "")
-        combined_text = content + " " + title
+        content = result.get("content", "") or ""
+        title = result.get("title", "") or ""
+        combined_text = f"{title} {content}"
         
         for pattern in pattern_list:
-            matches = re.findall(pattern, combined_text)
+            matches = re.findall(pattern, combined_text, re.IGNORECASE)
             for match in matches:
                 amenity = match.strip() if isinstance(match, str) else str(match).strip()
-                if len(amenity) > 2 and len(amenity) < 100:
-                    if amenity not in amenities:
-                        amenities.append(amenity)
-                        if len(amenities) >= max_items:
-                            return amenities
+                
+                # Filter out invalid results
+                if len(amenity) < 3 or len(amenity) > 100:
+                    continue
+                
+                # Filter out HTML artifacts and generic text
+                amenity_lower = amenity.lower()
+                if any(filter_word in amenity_lower for filter_word in filter_words):
+                    continue
+                
+                # Filter out results that are just numbers or single words (unless it's a school number)
+                if amenity_type != "schools" and len(amenity.split()) < 2:
+                    continue
+                
+                # Clean up common artifacts
+                amenity = re.sub(r'\s+', ' ', amenity)  # Normalize whitespace
+                amenity = amenity.strip()
+                
+                if amenity and amenity not in amenities:
+                    amenities.append(amenity)
+                    if len(amenities) >= max_items:
+                        return amenities
     
     return amenities[:max_items]
 
@@ -619,14 +705,12 @@ def enrich_property_data(
     """
     Perform optimized property data enrichment using web search.
     
-    OPTIMIZED VERSION (default): Performs 2 parallel searches:
-    1. Location Context: ZIP code + Neighborhood
-    2. Key Amenities: Schools + Transportation (combined, prioritized by listing_type)
+    FOCUS: Find amenities/features near the address to enrich listing description.
+    - ZIP code: Parsed from address (not searched)
+    - Neighborhood: Extracted from web search if not in address
+    - Amenities: Schools, Supermarkets, Parks, Transportation (searched in parallel)
     
-    This reduces latency by ~67% compared to comprehensive version (6 searches).
-    
-    To use the comprehensive version (6 searches), set use_comprehensive=True
-    or call enrich_property_data_comprehensive() directly.
+    Intelligently skips amenities already mentioned in user's notes (except parks).
     
     Args:
         address: Property address (normalized, preferred)
@@ -639,13 +723,13 @@ def enrich_property_data(
     Returns:
         Dictionary with enrichment data:
         {
-            "zip_code": Optional[str],
-            "neighborhood": Optional[str],
+            "zip_code": Optional[str],  # Parsed from address
+            "neighborhood": Optional[str],  # Extracted from web search
             "landmarks": List[str],  # Empty in optimized version
             "key_amenities": {
                 "schools": List[str],
-                "parks": List[str],  # Empty in optimized version
-                "shopping": List[str],  # Empty in optimized version
+                "supermarkets": List[str],
+                "parks": List[str],
                 "transportation": List[str]
             }
         }
@@ -667,67 +751,98 @@ def enrich_property_data(
         "landmarks": [],  # Not searched in optimized version
         "key_amenities": {
             "schools": [],
-            "parks": [],  # Not searched in optimized version
-            "shopping": [],  # Not searched in optimized version
+            "supermarkets": [],
+            "parks": [],
             "transportation": []
         }
     }
     
-    # Build queries for parallel execution
-    location_query = build_neighborhood_search_query(
+    # Step 1: Parse ZIP code from address (not from web search)
+    zip_code = parse_zip_code_from_address(address)
+    enrichment_data["zip_code"] = zip_code
+    if zip_code:
+        print(f"[DEBUG] Enrichment: Parsed ZIP code from address: {zip_code}")
+    
+    # Step 2: Determine which amenities to search for
+    # Check if amenities are already in notes (but always search for parks as requested)
+    amenity_types_to_search = []
+    
+    if not check_amenity_in_notes(notes, "schools"):
+        amenity_types_to_search.append("schools")
+    else:
+        print(f"[DEBUG] Enrichment: Skipping schools search (already in notes)")
+    
+    if not check_amenity_in_notes(notes, "supermarkets"):
+        amenity_types_to_search.append("supermarkets")
+    else:
+        print(f"[DEBUG] Enrichment: Skipping supermarkets search (already in notes)")
+    
+    # Always search for parks (as per user request)
+    amenity_types_to_search.append("parks")
+    
+    if not check_amenity_in_notes(notes, "transportation"):
+        amenity_types_to_search.append("transportation")
+    else:
+        print(f"[DEBUG] Enrichment: Skipping transportation search (already in notes)")
+    
+    # Step 3: Build search queries
+    neighborhood_query = build_neighborhood_search_query(
         address=address,
         notes=notes,
         listing_type=listing_type
     )
     
-    amenities_query = build_combined_amenities_search_query(
-        address=address,
-        notes=notes,
-        listing_type=listing_type
-    )
+    # Build queries for each amenity type
+    amenity_queries = {}
+    for amenity_type in amenity_types_to_search:
+        amenity_queries[amenity_type] = build_amenities_search_query(
+            address=address,
+            amenity_type=amenity_type,
+            notes=notes,
+            listing_type=listing_type
+        )
     
-    # Execute searches in parallel using ThreadPoolExecutor
-    def execute_location_search():
-        """Execute location search and extract ZIP + neighborhood"""
+    # Step 4: Execute searches in parallel
+    def execute_neighborhood_search():
+        """Execute neighborhood search"""
         try:
-            results = perform_tavily_search(location_query, search_tool)
+            results = perform_tavily_search(neighborhood_query, search_tool)
             if results:
-                zip_code = extract_zip_code(results)
                 neighborhood = extract_neighborhood(results, address)
-                return {"zip_code": zip_code, "neighborhood": neighborhood}
+                return {"neighborhood": neighborhood}
         except Exception as e:
-            print(f"[DEBUG] Location search failed: {e}")
-        return {"zip_code": None, "neighborhood": None}
+            print(f"[DEBUG] Neighborhood search failed: {e}")
+        return {"neighborhood": None}
     
-    def execute_amenities_search():
-        """Execute combined amenities search and extract schools + transportation"""
+    def execute_amenity_search(amenity_type: str, query: str):
+        """Execute search for specific amenity type"""
         try:
-            results = perform_tavily_search(amenities_query, search_tool)
+            results = perform_tavily_search(query, search_tool)
             if results:
-                # Extract schools from combined results
-                schools = extract_amenities(results, "schools", max_items=3)
-                # Extract transportation from combined results
-                transportation = extract_amenities(results, "transportation", max_items=3)
-                return {"schools": schools, "transportation": transportation}
+                amenities = extract_amenities(results, amenity_type, max_items=3)
+                return {amenity_type: amenities}
         except Exception as e:
-            print(f"[DEBUG] Amenities search failed: {e}")
-        return {"schools": [], "transportation": []}
+            print(f"[DEBUG] {amenity_type} search failed: {e}")
+        return {amenity_type: []}
     
-    # Execute both searches in parallel
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        # Submit both tasks
-        location_future = executor.submit(execute_location_search)
-        amenities_future = executor.submit(execute_amenities_search)
+    # Execute all searches in parallel
+    with ThreadPoolExecutor(max_workers=len(amenity_queries) + 1) as executor:
+        # Submit neighborhood search
+        neighborhood_future = executor.submit(execute_neighborhood_search)
         
-        # Wait for both to complete and collect results
-        location_result = location_future.result()
-        amenities_result = amenities_future.result()
-    
-    # Populate enrichment data with results
-    enrichment_data["zip_code"] = location_result.get("zip_code")
-    enrichment_data["neighborhood"] = location_result.get("neighborhood")
-    enrichment_data["key_amenities"]["schools"] = amenities_result.get("schools", [])
-    enrichment_data["key_amenities"]["transportation"] = amenities_result.get("transportation", [])
+        # Submit all amenity searches
+        amenity_futures = {}
+        for amenity_type, query in amenity_queries.items():
+            amenity_futures[amenity_type] = executor.submit(execute_amenity_search, amenity_type, query)
+        
+        # Wait for all to complete and collect results
+        neighborhood_result = neighborhood_future.result()
+        enrichment_data["neighborhood"] = neighborhood_result.get("neighborhood")
+        
+        # Collect amenity results
+        for amenity_type, future in amenity_futures.items():
+            result = future.result()
+            enrichment_data["key_amenities"][amenity_type] = result.get(amenity_type, [])
     
     return enrichment_data
 
