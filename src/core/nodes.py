@@ -368,13 +368,14 @@ def generate_content_node(state: PropertyListingState) -> PropertyListingState:
         # Initialize LLM (use environment variables for API keys)
         # Default to gpt-4o-mini for cost-effectiveness
         llm = initialize_llm(
-            model_name="gpt-4o-mini",
+            model_name="gpt-5-mini",
             model_provider="openai",
-            temperature=0.7
+            reasoning_effort="minimal"
         )
         
+        
         # Call LLM with prompt
-        llm_response = call_llm_with_prompt(llm, prompt, temperature=0.7)
+        llm_response = call_llm_with_prompt(llm, prompt, temperature=0.5)
         
         # Store raw output
         state["llm_raw_output"] = llm_response

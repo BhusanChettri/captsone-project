@@ -19,7 +19,7 @@ def create_listing_ui(
     security_deposit: float,
     hoa_fees: float,
     property_taxes: float,
-    progress: gr.Progress = None,
+    progress: gr.Progress = gr.Progress(),
 ) -> tuple:
     """
     Process listing request from Gradio UI and return unified output.
@@ -40,9 +40,8 @@ def create_listing_ui(
         - Generated listing (if successful)
         - Error messages (if validation failed)
     """
-    # Update progress if available
-    if progress:
-        progress(0.1, desc="Validating input...")
+    # Update progress
+    progress(0.1, desc="Validating input...")
     
     # Handle None/empty values for required fields
     # Convert to empty string or None as appropriate
@@ -60,8 +59,7 @@ def create_listing_ui(
     property_taxes = property_taxes if property_taxes and property_taxes > 0 else None
     
     # Process the request
-    if progress:
-        progress(0.3, desc="Processing listing request...")
+    progress(0.3, desc="Processing listing request...")
     result = process_listing_request(
         address=address,
         listing_type=listing_type,
@@ -75,8 +73,7 @@ def create_listing_ui(
     )
     
     # Format unified output
-    if progress:
-        progress(0.9, desc="Formatting output...")
+    progress(0.9, desc="Formatting output...")
     if result["success"] and result["listing"]:
         # Success: return the generated listing
         output_text = result["listing"]["formatted_listing"]
@@ -91,8 +88,7 @@ def create_listing_ui(
             output_text += "No listing could be generated."
     
     # Complete progress
-    if progress:
-        progress(1.0, desc="Complete!")
+    progress(1.0, desc="Complete!")
     
     # Return output text, visibility update for output column, and re-enable button
     # After first generation, show the output column
@@ -186,6 +182,13 @@ def create_gradio_interface():
             
             # Output column - initially hidden, shown after first generation
             with gr.Column(scale=1, visible=False) as output_column:
+                # Progress indicator - shown in the center of output area during processing
+                progress_indicator = gr.Markdown(
+                    value="",
+                    visible=False,
+                    elem_classes=["progress-indicator"]
+                )
+                
                 # Single unified output area - displays listing or errors dynamically
                 # This can be extended for chat capabilities in future iterations
                 output_display = gr.Markdown(
@@ -217,6 +220,34 @@ def create_gradio_interface():
             outputs=[rental_accordion, sale_accordion, price_input]
         )
         
+        # Function to show progress indicator and output column
+        def show_progress_indicator():
+            """Show progress indicator in the center of output area and make output column visible"""
+            progress_html = """
+            <div style="text-align: center; padding: 80px 20px; margin: 40px 0; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 300px;">
+                <div style="display: inline-block; width: 60px; height: 60px; border: 5px solid #e0e0e0; border-top: 5px solid #4CAF50; border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 20px;"></div>
+                <h3 style="margin: 0; color: #333; font-size: 18px; font-weight: 600;">Processing your listing...</h3>
+                <p style="margin-top: 10px; font-size: 14px; color: #666;">This may take a few seconds</p>
+            </div>
+            <style>
+                @keyframes spin {
+                    0% { transform: rotate(0deg); }
+                    100% { transform: rotate(360deg); }
+                }
+            </style>
+            """
+            return (
+                "",  # Clear output display
+                gr.update(interactive=False),  # Disable button
+                gr.update(visible=True),  # Show output column
+                gr.update(visible=True, value=progress_html),  # Show progress indicator in output area
+            )
+        
+        # Function to hide progress indicator
+        def hide_progress_indicator():
+            """Hide progress indicator"""
+            return gr.update(visible=False, value="")
+        
         # Function to clear previous output and disable button when processing starts
         def clear_output_and_disable_button():
             """Clear previous error/output messages and disable button immediately"""
@@ -226,13 +257,15 @@ def create_gradio_interface():
             )
         
         # Connect submit button
-        # When clicked: clear output, disable button, then generate listing with progress, then re-enable button
+        # When clicked: show progress in output area, clear output, disable button, then generate listing, then hide progress and show results
         submit_btn.click(
-            fn=clear_output_and_disable_button,
+            fn=show_progress_indicator,
             inputs=[],
             outputs=[
                 output_display,  # Clear output display immediately
                 submit_btn,      # Disable button immediately
+                output_column,   # Show output column (so progress is visible)
+                progress_indicator,  # Show progress indicator in output area
             ],
         ).then(
             fn=create_listing_ui,
@@ -249,10 +282,14 @@ def create_gradio_interface():
             ],
             outputs=[
                 output_display,  # Output text
-                output_column,   # Show output column after first generation
+                output_column,   # Keep output column visible
                 submit_btn,      # Re-enable button
             ],
-            show_progress="minimal",  # Show single progress bar with timer
+            show_progress="full",  # Show full progress bar with timer
+        ).then(
+            fn=hide_progress_indicator,
+            inputs=[],
+            outputs=[progress_indicator],  # Hide progress indicator when output is ready
         )
         
     

@@ -178,11 +178,6 @@ def format_listing(
     # Price block (clearly separated)
     if price_block:
         parts.append(price_block)
-        parts.append("")  # Empty line after price
-    
-    # Disclaimer (standard real estate disclaimer)
-    disclaimer = "All information deemed reliable but not guaranteed. Equal Housing Opportunity."
-    parts.append(disclaimer)
     
     # Join all parts with newlines
     formatted_listing = "\n".join(parts)
