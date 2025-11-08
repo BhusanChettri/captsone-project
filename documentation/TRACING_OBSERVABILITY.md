@@ -135,9 +135,7 @@ print(f"Web searches: {trace_metadata.get('web_searches', [])}")
 ### 5. Node Execution Metrics
 
 All node executions are automatically traced by Opik:
-- input_guardrail_node
-- validate_input_node
-- normalize_text_node
+- input_guardrail_node (combined security, validation, and normalization)
 - enrich_data_node
 - generate_content_node
 - output_guardrail_node
@@ -153,9 +151,155 @@ When Opik is properly configured, traces are automatically sent to the Opik dash
 4. **Debug web searches** - See queries, results, and timing
 5. **Analyze errors** - Track failures and exceptions
 
+### Running Opik Locally
+
+To run Opik locally, you need to set up the Opik local server using Docker containers. Follow these steps:
+
+#### Step 1: Clone the Opik Repository
+
+```bash
+# Navigate to a directory where you want to clone Opik
+cd ~/Projects  # or your preferred location
+
+# Clone the Opik repository
+git clone https://github.com/comet-ml/opik.git
+cd opik
+```
+
+#### Step 2: Start Opik Local Server
+
+```bash
+# Make the startup script executable (if needed)
+chmod +x opik.sh
+
+# Run the Opik local server (this starts all required Docker containers)
+./opik.sh
+```
+
+This script will:
+- Start all required Docker containers
+- Set up the Opik API server on port 5173
+- Start the Opik dashboard UI
+- Initialize the database and storage
+
+**Wait for all containers to be healthy** before proceeding. You should see output indicating that services are ready.
+
+#### Step 3: Verify Opik is Running
+
+Check that the Opik API is accessible:
+
+```bash
+# Test the health endpoint
+curl http://localhost:5173/api/is-alive/ping
+
+# Should return: {"status": "ok"} or similar
+```
+
+#### Step 4: Configure Your Application
+
+The application is configured to use Opik via environment variables. You can choose between local and cloud mode:
+
+**For Local Mode** (recommended for development):
+Add to your `.env` file in the `iteration1/` directory:
+```env
+OPIK_USE_LOCAL=true
+OPIK_URL=http://localhost:5173/api/
+```
+
+**For Cloud Mode** (requires Comet account):
+Add to your `.env` file:
+```env
+OPIK_USE_LOCAL=false
+COMET_API_KEY=your-comet-api-key-here
+```
+
+If `OPIK_USE_LOCAL` is not set, the application defaults to cloud mode.
+
+#### Step 5: Access the Opik Dashboard
+
+Once Opik is running, open your browser and navigate to:
+```
+http://localhost:5173
+```
+
+You should see the Opik dashboard where you can:
+- View workflow execution traces
+- Monitor LLM calls and performance
+- Track web search operations
+- Analyze node execution times
+- Debug issues with detailed trace information
+
+#### Step 6: Stop Opik Local Server
+
+When you're done, stop the Opik containers:
+
+```bash
+# Navigate to the Opik directory
+cd ~/Projects/opik  # or wherever you cloned it
+
+# Stop all containers
+./opik.sh stop
+
+# Or use docker-compose directly
+docker-compose down
+```
+
+#### Troubleshooting Local Setup
+
+**Port 5173 already in use:**
+```bash
+# Find what's using the port
+lsof -i :5173
+
+# Kill the process if needed
+kill <PID>
+```
+
+**Containers won't start:**
+- Ensure Docker and Docker Compose are installed and running
+- Check available disk space
+- Review container logs: `docker-compose logs`
+
+**Can't access dashboard:**
+- Verify containers are running: `docker ps`
+- Check if port 5173 is accessible: `curl http://localhost:5173/api/is-alive/ping`
+- Ensure firewall isn't blocking the port
+
+> **Important Notes:**
+> - The `opik proxy` command only exposes LLM forwarding endpoints (for Ollama / LM Studio) and will **not** serve the dashboard or tracing API
+> - You must run the full Opik local stack using `./opik.sh` to get the complete functionality
+> - If you only run `opik proxy`, the SDK will log `404 Not Found` errors for trace/spans uploads
+> - The local setup requires Docker and Docker Compose to be installed on your system
+
 ### Opik Configuration
 
-Opik can be configured via environment variables or configuration files. Refer to the [Opik documentation](https://www.comet.com/docs/opik/) for setup instructions.
+Opik can be configured via environment variables. The application automatically reads configuration from your `.env` file or system environment variables.
+
+#### Environment Variables
+
+| Variable | Description | Default | Required |
+|----------|-------------|---------|----------|
+| `OPIK_USE_LOCAL` | Set to `"true"` or `"1"` for local mode, `"false"` or `"0"` for cloud | `false` (cloud) | No |
+| `OPIK_URL` | URL for local Opik server (only used when `OPIK_USE_LOCAL=true`) | `http://localhost:5173/api/` | No (for local mode) |
+| `COMET_API_KEY` | Comet API key for cloud mode (required for cloud) | None | Yes (for cloud mode) |
+
+#### Configuration Examples
+
+**Local Mode Configuration** (`.env` file):
+```env
+OPIK_USE_LOCAL=true
+OPIK_URL=http://localhost:5173/api/
+```
+
+**Cloud Mode Configuration** (`.env` file):
+```env
+OPIK_USE_LOCAL=false
+COMET_API_KEY=your-comet-api-key-here
+```
+
+The configuration is automatically loaded when the application starts. You can switch between local and cloud modes by simply changing the `OPIK_USE_LOCAL` value in your `.env` file.
+
+For more details, refer to the [Opik documentation](https://www.comet.com/docs/opik/).
 
 ## Example Trace Output
 
@@ -266,4 +410,3 @@ Potential improvements:
 - [Opik Documentation](https://www.comet.com/docs/opik/)
 - [LangGraph Observability](https://langchain-ai.github.io/langgraph/how-tos/observability/)
 - [LangChain Tracing](https://python.langchain.com/docs/observability/)
-
