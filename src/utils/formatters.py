@@ -7,26 +7,28 @@ It handles:
 - Final listing formatting with proper structure
 - Disclaimer addition
 - Text cleaning and normalization
+- Region-specific currency formatting
 """
 
 import re
 from typing import Optional, Dict, Any
+from .region_config import get_region_config, get_currency_symbol
 
-# Price-related patterns to remove from description
+# Price-related patterns to remove from description (multi-currency support)
 PRICE_REMOVAL_PATTERNS = [
-    r'\$\d+[\d,]*',  # $500,000 or $2,500
-    r'\d+[\d,]*\s*dollars?',  # "500,000 dollars"
-    r'\d+[\d,]*\s*usd',  # "500000 USD"
-    r'price[:\s]+\$?\d+[\d,]*',  # "Price: $500,000"
-    r'cost[:\s]+\$?\d+[\d,]*',  # "Cost: $500,000"
-    r'asking[:\s]+\$?\d+[\d,]*',  # "Asking: $500,000"
-    r'rent[:\s]+\$?\d+[\d,]*',  # "Rent: $2,500"
+    r'[\$£€]\d+[\d,]*',  # $500,000, £500,000, €500,000
+    r'\d+[\d,]*\s*(dollars?|pounds?|euros?)',  # "500,000 dollars", "500,000 pounds"
+    r'\d+[\d,]*\s*(usd|cad|gbp|aud|eur)',  # "500000 USD", "500000 GBP"
+    r'price[:\s]+[\$£€]?\d+[\d,]*',  # "Price: $500,000" or "Price: £500,000"
+    r'cost[:\s]+[\$£€]?\d+[\d,]*',  # "Cost: $500,000"
+    r'asking[:\s]+[\$£€]?\d+[\d,]*',  # "Asking: $500,000"
+    r'rent[:\s]+[\$£€]?\d+[\d,]*',  # "Rent: $2,500"
     r'\d+[\d,]*\s*per\s*month',  # "2500 per month"
     r'\d+[\d,]*\s*per\s*week',  # "500 per week"
     r'\d+[\d,]*\s*/\s*month',  # "2500/month"
     r'\d+[\d,]*\s*/\s*week',  # "500/week"
-    r'\$?\d+[\d,]*\s*monthly',  # "$2,500 monthly"
-    r'\$?\d+[\d,]*\s*weekly',  # "$500 weekly"
+    r'[\$£€]?\d+[\d,]*\s*monthly',  # "$2,500 monthly" or "£2,500 monthly"
+    r'[\$£€]?\d+[\d,]*\s*weekly',  # "$500 weekly"
 ]
 
 
@@ -133,7 +135,9 @@ def format_listing(
     description: str,
     price_block: str,
     seller_price: Optional[float] = None,
+    predicted_price: Optional[float] = None,
     listing_type: Optional[str] = None,
+    region: Optional[str] = "US",
     remove_price_from_desc: bool = True
 ) -> str:
     """
@@ -142,19 +146,28 @@ def format_listing(
     Creates a well-formatted listing with organized sections:
     - Title: Generated listing title
     - Listing Details: Generated description
-    - Seller Asking Price: Original price from user input
-    - Predicted Price: Currently same as seller price (will be enhanced later)
+    - User-provided price: Original asking price from user input (if provided)
+    - Predicted price: System-predicted price based on market data (if available)
     
     Args:
         title: Listing title
         description: Listing description
         price_block: Formatted price information (from LLM)
-        seller_price: Original asking price from user (for Seller Asking Price section)
+        seller_price: Original asking price from user (optional)
+        predicted_price: System-predicted price based on market data (optional, future feature)
+        listing_type: "sale" or "rent" (for appropriate labels)
+        region: Region code for currency formatting
         remove_price_from_desc: If True, remove price from description (safety net)
         
     Returns:
         Formatted listing string ready for display with organized sections
     """
+    # Get region configuration for currency formatting
+    region = region.upper() if region else "US"
+    config = get_region_config(region)
+    currency_symbol = config["currency_symbol"]
+    currency = config["currency"]
+    
     # Clean inputs
     title = clean_text(title) if title else ""
     description = clean_text(description) if description else ""
@@ -180,16 +193,30 @@ def format_listing(
         parts.append(description)
         parts.append("")  # Empty line after description
     
-    # Price section (label changes based on listing type)
-    if seller_price is not None:
-        # Use appropriate label based on listing type
-        if listing_type and listing_type.lower() == "rent":
-            price_label = "**Monthly Rent:**"
-        else:
-            price_label = "**Seller Asking Price:**"
+    # Price section - show both user-provided and predicted prices (if available)
+    # Label changes based on listing type, currency based on region
+    has_any_price = seller_price is not None or predicted_price is not None
+    
+    if has_any_price:
+        parts.append("**Pricing Information:**")
         
-        parts.append(price_label)
-        parts.append(f"${seller_price:,.2f}")
+        # Show user-provided price if available
+        if seller_price is not None:
+            if listing_type and listing_type.lower() == "rent":
+                user_price_label = "Monthly Rent:"
+            else:
+                user_price_label = "Asking Price:"
+            
+            parts.append(f"{user_price_label} {currency_symbol}{seller_price:,.2f} ({currency})")
+        
+        # Show predicted price if available (future feature - price prediction)
+        if predicted_price is not None:
+            if listing_type and listing_type.lower() == "rent":
+                predicted_price_label = "Predicted Rental:"
+            else:
+                predicted_price_label = "Predicted Price:"
+            
+            parts.append(f"{predicted_price_label} {currency_symbol}{predicted_price:,.2f} ({currency})")
         
         # Extract additional pricing details from price_block (HOA fees, taxes, deposit, etc.)
         # These are already in price_block but we want to show them as sub-items with bullet points
@@ -201,17 +228,27 @@ def format_listing(
                 line = line.strip()
                 if not line:
                     continue
-                # Skip if this line is just the main price
-                if seller_price is not None:
-                    # Check if line contains just the price (with or without $ and formatting)
-                    price_str = f"${seller_price:,.2f}"
-                    price_str_no_comma = f"${seller_price:.2f}"
-                    if line == price_str or line == price_str_no_comma or line == str(int(seller_price)):
+                # Skip if this line is just the main price (check both seller_price and predicted_price)
+                price_to_check = seller_price if seller_price is not None else predicted_price
+                if price_to_check is not None:
+                    # Check if line contains just the price (with or without currency symbol and formatting)
+                    price_str = f"{currency_symbol}{price_to_check:,.2f}"
+                    price_str_no_comma = f"{currency_symbol}{price_to_check:.2f}"
+                    price_str_usd = f"${price_to_check:,.2f}"  # Also check USD format
+                    price_str_usd_no_comma = f"${price_to_check:.2f}"
+                    if (line == price_str or line == price_str_no_comma or 
+                        line == price_str_usd or line == price_str_usd_no_comma or 
+                        line == str(int(price_to_check))):
                         continue
-                    # Check if line starts with price (like "$234,560.00 HOA Fees...")
-                    if line.startswith(price_str) or line.startswith(price_str_no_comma):
+                    # Check if line starts with price (like "$234,560.00 HOA Fees..." or "£234,560.00 HOA Fees...")
+                    if (line.startswith(price_str) or line.startswith(price_str_no_comma) or
+                        line.startswith(price_str_usd) or line.startswith(price_str_usd_no_comma)):
                         # Extract the part after the price
-                        remaining = line.replace(price_str, "").replace(price_str_no_comma, "").strip()
+                        remaining = (line.replace(price_str, "")
+                                    .replace(price_str_no_comma, "")
+                                    .replace(price_str_usd, "")
+                                    .replace(price_str_usd_no_comma, "")
+                                    .strip())
                         if remaining:
                             additional_details.append(remaining)
                         continue
@@ -231,15 +268,7 @@ def format_listing(
             for detail in additional_details:
                 parts.append(f"  * {detail}")
         
-        parts.append("")  # Empty line after seller price section
-    
-    # Predicted Price section (for now, same as seller price)
-    # TODO: In future iterations, this will be calculated by price analysis model
-    if seller_price is not None:
-        parts.append("**Predicted Price:**")
-        predicted_price = seller_price  # For now, use seller price as predicted
-        parts.append(f"${predicted_price:,.2f}")
-        parts.append("")  # Empty line after predicted price
+        parts.append("")  # Empty line after pricing section
     
     # Join all parts with newlines
     formatted_listing = "\n".join(parts)

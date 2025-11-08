@@ -1,5 +1,5 @@
 """
-Main Entry Point for Property Listing System - Iteration 1
+Main Entry Point for Property List Mate - Iteration 1
 
 This module provides the main entry point for the application.
 It handles:
@@ -10,6 +10,7 @@ It handles:
 """
 
 import sys
+import time
 from pathlib import Path
 
 # Add src to path
@@ -17,18 +18,18 @@ sys.path.insert(0, str(Path(__file__).parent / "src"))
 
 from core import create_workflow, PropertyListingState
 from models import PropertyListingInput
+from utils.tracing import clear_trace_metadata, set_trace_metadata, get_trace_metadata
 
 
 def process_listing_request(
     address: str,
     listing_type: str,
-    price: float,
+    property_type: str | None = None,
+    bedrooms: int | None = None,
+    bathrooms: float | None = None,
+    sqft: int | None = None,
     notes: str = "",
-    billing_cycle: str = None,
-    lease_term: str = None,
-    security_deposit: float = None,
-    hoa_fees: float = None,
-    property_taxes: float = None,
+    region: str = "US",
 ) -> dict:
     """
     Process a property listing request from UI.
@@ -42,13 +43,12 @@ def process_listing_request(
     Args:
         address: Property address (required)
         listing_type: "sale" or "rent" (required)
-        price: Asking price in USD (required)
-        notes: Free-text description with key features (optional)
-        billing_cycle: How often rent is paid, e.g., "monthly", "weekly" (rental only)
-        lease_term: Lease duration, e.g., "12 months" (rental only)
-        security_deposit: Security deposit amount in USD (rental only)
-        hoa_fees: HOA fees in USD per month (sale only)
-        property_taxes: Annual property taxes in USD (sale only)
+        property_type: Type of property - "Apartment", "House", "Condo", "Townhouse", "Studio", "Loft" (required)
+        bedrooms: Number of bedrooms (required)
+        bathrooms: Number of bathrooms, can be decimal like 1.5 (required)
+        sqft: Square footage / total living area (required)
+        notes: Free-text description with key features, amenities, condition, etc. (optional)
+        region: Region code (US, CA, UK, AU). Defaults to "US" if not specified.
         
     Returns:
         Dictionary with:
@@ -62,14 +62,31 @@ def process_listing_request(
     print("=" * 80)
     print(f"Address: {address or 'Not provided'}")
     print(f"Listing Type: {listing_type or 'Not provided'}")
-    print(f"Price: ${price:,.2f}" if price is not None else "Price: Not provided")
+    print(f"Property Type: {property_type or 'Not provided'}")
+    print(f"Bedrooms: {bedrooms or 'Not provided'}")
+    print(f"Bathrooms: {bathrooms or 'Not provided'}")
+    print(f"Square Footage: {sqft or 'Not provided'}")
     print(f"Notes: {notes[:100] if notes else 'None'}...")
     print("=" * 80 + "\n")
     
-    # Step 1: Create workflow
+    # Step 1: Create workflow with tracing
     try:
-        workflow = create_workflow()
+        # Clear any previous trace metadata
+        clear_trace_metadata()
+        
+        # Set trace metadata for this request
+        set_trace_metadata("request_id", str(time.time()))
+        set_trace_metadata("address", address[:100] if address else None)
+        set_trace_metadata("listing_type", listing_type)
+        set_trace_metadata("property_type", property_type)
+        set_trace_metadata("bedrooms", bedrooms)
+        set_trace_metadata("bathrooms", bathrooms)
+        set_trace_metadata("sqft", sqft)
+        
+        workflow, tracer = create_workflow(enable_tracing=True)
         print("✓ Workflow initialized")
+        if tracer:
+            print("✓ Tracing enabled")
     except Exception as e:
         return {
             "success": False,
@@ -80,36 +97,55 @@ def process_listing_request(
     
     # Step 2: Create initial state from UI input
     # Handle None values and empty strings properly
-    # Note: We preserve None for price so validation can catch missing required fields
     # Notes is optional - preserve None if not provided
     initial_state: PropertyListingState = {
         "address": address.strip() if address and address.strip() else "",
         "listing_type": listing_type.strip().lower() if listing_type and listing_type.strip() else "",
-        "price": float(price) if price is not None and price != "" else None,  # Preserve None for validation
+        "property_type": property_type.strip() if property_type and property_type.strip() else "",
+        "bedrooms": int(bedrooms) if bedrooms is not None and bedrooms >= 0 else None,
+        "bathrooms": float(bathrooms) if bathrooms is not None and bathrooms >= 0 else None,
+        "sqft": int(sqft) if sqft is not None and sqft > 0 else None,
         "notes": notes.strip() if notes and notes.strip() else None,  # Preserve None for optional field
+        "region": region.strip().upper() if region and region.strip() else "US",  # Default to US
         "errors": []
     }
     
-    # Add optional fields based on listing type
-    if listing_type.lower() == "rent":
-        if billing_cycle:
-            initial_state["billing_cycle"] = billing_cycle.strip()
-        if lease_term:
-            initial_state["lease_term"] = lease_term.strip()
-        if security_deposit is not None:
-            initial_state["security_deposit"] = float(security_deposit)
-    elif listing_type.lower() == "sale":
-        if hoa_fees is not None:
-            initial_state["hoa_fees"] = float(hoa_fees)
-        if property_taxes is not None:
-            initial_state["property_taxes"] = float(property_taxes)
-    
-    # Step 3: Execute workflow
+    # Step 3: Execute workflow with tracing
     try:
         print("Executing workflow...\n")
-        result_state = workflow.invoke(initial_state)
-        print("\n✓ Workflow execution completed\n")
+        
+        # Track total execution time
+        workflow_start_time = time.time()
+        
+        # Prepare config with tracer callback if available
+        config = {
+            "configurable": {
+                "thread_id": f"listing_{int(time.time())}"
+            }
+        }
+        
+        # Add tracer as callback if available
+        if tracer:
+            config["callbacks"] = [tracer]
+            print("[TRACE] Opik tracer attached to workflow execution")
+        
+        # Execute workflow
+        result_state = workflow.invoke(initial_state, config=config)
+        
+        # Calculate total execution time
+        workflow_end_time = time.time()
+        total_execution_time = workflow_end_time - workflow_start_time
+        
+        # Store timing in trace metadata
+        set_trace_metadata("total_execution_time", total_execution_time)
+        set_trace_metadata("workflow_completed", True)
+        
+        print(f"\n✓ Workflow execution completed in {total_execution_time:.3f}s\n")
+        print(f"[TRACE] Total execution time: {total_execution_time:.3f}s")
+        
     except Exception as e:
+        set_trace_metadata("workflow_error", str(e))
+        set_trace_metadata("workflow_completed", False)
         return {
             "success": False,
             "listing": None,
@@ -140,11 +176,15 @@ def process_listing_request(
         "formatted_listing": formatted_listing
     }
     
+    # Include trace metadata in response for debugging
+    trace_metadata = get_trace_metadata()
+    
     return {
         "success": success,
         "listing": listing_result if success else None,
         "errors": errors,
-        "state": result_state  # Include full state for debugging
+        "state": result_state,  # Include full state for debugging
+        "trace_metadata": trace_metadata  # Include trace metadata
     }
 
 
@@ -155,7 +195,7 @@ def main():
     This allows testing the workflow without Gradio UI.
     """
     print("=" * 80)
-    print("PROPERTY LISTING SYSTEM - ITERATION 1")
+    print("PROPERTY LIST MATE - ITERATION 1")
     print("=" * 80)
     print()
     
@@ -163,10 +203,11 @@ def main():
     result = process_listing_request(
         address="123 Main Street, New York, NY 10001",
         listing_type="sale",
-        price=500000.0,
-        notes="Beautiful 2BR/1BA apartment with modern kitchen, hardwood floors, and great natural light. Close to subway and Central Park.",
-        hoa_fees=200.0,
-        property_taxes=5000.0
+        property_type="Apartment",
+        bedrooms=2,
+        bathrooms=1.0,
+        sqft=1200,
+        notes="Beautiful apartment with modern kitchen, hardwood floors, and great natural light. Close to subway and Central Park."
     )
     
     # Display results

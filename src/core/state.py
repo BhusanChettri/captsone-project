@@ -71,15 +71,27 @@ class PropertyListingState(TypedDict, total=False):
     listing_type: Literal["sale", "rent"]
     """Listing type: "sale" or "rent". Required field."""
     
+    property_type: str
+    """Type of property: "Apartment", "House", "Condo", "Townhouse", "Studio", "Loft". Required field."""
+    
+    bedrooms: Optional[int]
+    """Number of bedrooms. Required field."""
+    
+    bathrooms: Optional[float]
+    """Number of bathrooms (can be decimal like 1.5). Required field."""
+    
+    sqft: Optional[int]
+    """Square footage / total living area. Required field."""
+    
+    region: Optional[str]
+    """Region code (US, CA, UK, AU). Optional, defaults to US if not specified."""
+    
     # ========================================================================
     # Optional Input Fields
     # ========================================================================
     
-    price: Optional[float]
-    """Asking price in USD. Optional but typically provided."""
-    
     notes: Optional[str]
-    """Free-text description with key features (beds, baths, sqft, amenities)."""
+    """Free-text description with key features, amenities, condition, etc. Optional field."""
     
     # Rental-specific optional fields
     billing_cycle: Optional[str]
@@ -91,12 +103,21 @@ class PropertyListingState(TypedDict, total=False):
     security_deposit: Optional[float]
     """Security deposit amount in USD. For rentals only."""
     
-    # Sale-specific optional fields
+    # Sale-specific optional fields (region-dependent)
     hoa_fees: Optional[float]
-    """HOA fees in USD. For sales only."""
+    """HOA fees / Condo fees / Service charge (region-dependent). For sales only."""
     
     property_taxes: Optional[float]
-    """Annual property taxes in USD. For sales only."""
+    """Property taxes / Council tax / Rates (region-dependent). For sales only."""
+    
+    council_tax: Optional[float]
+    """Council tax (UK only). Can be for sale or rent."""
+    
+    rates: Optional[float]
+    """Council rates (Australia only). For sales only."""
+    
+    strata_fees: Optional[float]
+    """Strata fees / Body corporate (Australia/Canada). For sales only."""
     
     # ========================================================================
     # Processing Fields (set by normalization node)
@@ -126,9 +147,19 @@ class PropertyListingState(TypedDict, total=False):
     Dictionary of key amenities organized by category.
     Structure: {
         "schools": ["School Name 1", "School Name 2"],
+        "supermarkets": ["Supermarket Name 1"],
         "parks": ["Park Name 1"],
-        "shopping": ["Shopping Center 1"],
         "transportation": ["Subway: Line 1, Line 2"]
+    }
+    """
+    
+    neighborhood_quality: Optional[Dict[str, Optional[str]]]
+    """
+    Neighborhood quality information from web search.
+    Structure: {
+        "crime_info": Optional[str],  # Crime rates/safety information
+        "quality_of_life": Optional[str],  # Quality of life indicators
+        "safety_info": Optional[str]  # Safety information
     }
     """
     

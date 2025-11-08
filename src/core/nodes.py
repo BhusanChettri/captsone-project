@@ -56,15 +56,21 @@ def input_guardrail_node(state: PropertyListingState) -> PropertyListingState:
     # Get input fields (handle None values)
     address = state.get("address", "") or ""
     notes = state.get("notes", "") or ""
-    price = state.get("price")
     listing_type = state.get("listing_type", "") or ""
+    property_type = state.get("property_type", "") or ""
+    bedrooms = state.get("bedrooms")
+    bathrooms = state.get("bathrooms")
+    sqft = state.get("sqft")
     
     # Check if required fields are present before doing property-related validation
     # If required fields are missing, skip property-related check and let validation handle it
     has_required_fields = (
         address and address.strip() and
         listing_type and listing_type.strip() and
-        price is not None
+        property_type and property_type.strip() and
+        bedrooms is not None and
+        bathrooms is not None and
+        sqft is not None
     )
     
     # Perform comprehensive guardrail checks
@@ -108,25 +114,21 @@ def validate_input_node(state: PropertyListingState) -> PropertyListingState:
     # Get all input fields from state
     address = state.get("address")
     listing_type = state.get("listing_type")
-    price = state.get("price")
+    property_type = state.get("property_type")
+    bedrooms = state.get("bedrooms")
+    bathrooms = state.get("bathrooms")
+    sqft = state.get("sqft")
     notes = state.get("notes")
-    billing_cycle = state.get("billing_cycle")
-    lease_term = state.get("lease_term")
-    security_deposit = state.get("security_deposit")
-    hoa_fees = state.get("hoa_fees")
-    property_taxes = state.get("property_taxes")
     
     # Perform comprehensive validation
     validation_errors = validate_input_fields(
         address=address,
         listing_type=listing_type,
-        price=price,
+        property_type=property_type,
+        bedrooms=bedrooms,
+        bathrooms=bathrooms,
+        sqft=sqft,
         notes=notes,
-        billing_cycle=billing_cycle,
-        lease_term=lease_term,
-        security_deposit=security_deposit,
-        hoa_fees=hoa_fees,
-        property_taxes=property_taxes,
     )
     
     # Add any validation errors to state
@@ -251,17 +253,11 @@ def enrich_data_node(state: PropertyListingState) -> PropertyListingState:
             search_depth="advanced",
         )
         
-        # Get all available context for intelligent search query construction
-        normalized_notes = state.get("normalized_notes") or state.get("notes") or ""
-        listing_type = state.get("listing_type")
-        price = state.get("price")
-        
-        # Perform enrichment using all available context
+        # Perform enrichment using ONLY address (exactly 2 web search calls)
+        # WEB SEARCH 1: Address + amenities (schools, shopping, subway, etc.)
+        # WEB SEARCH 2: Address + neighborhood quality (crime rates, quality of life)
         enrichment_data = enrich_property_data(
             address=address,
-            notes=normalized_notes,
-            listing_type=listing_type,
-            price=price,
             search_tool=search_tool
         )
         
@@ -303,12 +299,17 @@ def enrich_data_node(state: PropertyListingState) -> PropertyListingState:
             key_amenities_val = enrichment_data.get("key_amenities")
             print(f"[DEBUG] Node 4: key_amenities NOT stored (value: {key_amenities_val}, type: {type(key_amenities_val)}, truthy: {bool(key_amenities_val)})")
         
+        # Store neighborhood quality information
+        if enrichment_data.get("neighborhood_quality"):
+            state["neighborhood_quality"] = enrichment_data["neighborhood_quality"]
+            stored_items.append("neighborhood_quality")
+        
         print(f"[DEBUG] Node 4: Enrichment data stored in state: {', '.join(stored_items) if stored_items else 'NONE'}")
         print(f"[DEBUG] Node 4: Final state enrichment fields:")
         print(f"  - state['zip_code']: {state.get('zip_code')}")
         print(f"  - state['neighborhood']: {state.get('neighborhood')}")
-        print(f"  - state['landmarks']: {state.get('landmarks')}")
         print(f"  - state['key_amenities']: {state.get('key_amenities')}")
+        print(f"  - state['neighborhood_quality']: {state.get('neighborhood_quality')}")
     
     except ValueError as e:
         # Missing API key or configuration error
@@ -358,11 +359,14 @@ def generate_content_node(state: PropertyListingState) -> PropertyListingState:
     # Validate required fields
     address = state.get("address")
     listing_type = state.get("listing_type")
-    price = state.get("price")
+    property_type = state.get("property_type")
+    bedrooms = state.get("bedrooms")
+    bathrooms = state.get("bathrooms")
+    sqft = state.get("sqft")
     
-    if not address or not listing_type or price is None:
+    if not address or not listing_type or not property_type or bedrooms is None or bathrooms is None or sqft is None:
         state["errors"].append(
-            "Cannot generate content: missing required fields (address, listing_type, or price)"
+            "Cannot generate content: missing required fields (address, listing_type, property_type, bedrooms, bathrooms, or sqft)"
         )
         return state
     
@@ -386,11 +390,17 @@ def generate_content_node(state: PropertyListingState) -> PropertyListingState:
             for category, items in state.get('key_amenities', {}).items():
                 print(f"    - {category}: {items} (length: {len(items) if items else 0})")
         
-        # Build comprehensive prompt with all available data
-        prompt = build_listing_generation_prompt(
+        # Build comprehensive prompt with all available data (with tracing)
+        from utils.tracing import trace_prompt_building, set_trace_metadata
+        
+        prompt, prompt_metrics = trace_prompt_building(
+            build_listing_generation_prompt,
             address=address,
             listing_type=listing_type,
-            price=price,
+            property_type=property_type,
+            bedrooms=bedrooms,
+            bathrooms=bathrooms,
+            sqft=sqft,
             notes=state.get("notes"),
             normalized_address=state.get("normalized_address"),
             normalized_notes=state.get("normalized_notes"),
@@ -398,12 +408,12 @@ def generate_content_node(state: PropertyListingState) -> PropertyListingState:
             neighborhood=state.get("neighborhood"),
             landmarks=state.get("landmarks"),
             key_amenities=state.get("key_amenities"),
-            billing_cycle=state.get("billing_cycle"),
-            lease_term=state.get("lease_term"),
-            security_deposit=state.get("security_deposit"),
-            hoa_fees=state.get("hoa_fees"),
-            property_taxes=state.get("property_taxes"),
+            neighborhood_quality=state.get("neighborhood_quality"),
+            region=state.get("region", "US"),
         )
+        
+        # Store prompt building metrics
+        set_trace_metadata("prompt_building_metrics", prompt_metrics)
         
         # DEBUG: Log prompt sections (first 2000 chars to see structure)
         print(f"[DEBUG] Node 5: Prompt preview (first 2000 chars):")
@@ -419,9 +429,13 @@ def generate_content_node(state: PropertyListingState) -> PropertyListingState:
             reasoning_effort="minimal"
         )
         
-        
-        # Call LLM with prompt
-        llm_response = call_llm_with_prompt(llm, prompt, temperature=0.5)
+        # Call LLM with prompt (tracing is handled inside call_llm_with_prompt)
+        llm_response = call_llm_with_prompt(
+            llm, 
+            prompt, 
+            temperature=0.5,
+            model_name="gpt-5-mini"
+        )
         
         # Store raw output
         state["llm_raw_output"] = llm_response
@@ -571,8 +585,9 @@ def format_output_node(state: PropertyListingState) -> PropertyListingState:
         if state["price_block"]:
             print(f"[DEBUG] Node 7: Formatted price_block: {state['price_block']}")
         
-        # Get original seller price and listing type for display
+        # Get original seller price, predicted price, and listing type for display
         seller_price = state.get("price")
+        predicted_price = state.get("predicted_price")  # Future feature: price prediction
         listing_type = state.get("listing_type")
         
         # Create final formatted listing with organized structure
@@ -581,7 +596,9 @@ def format_output_node(state: PropertyListingState) -> PropertyListingState:
             description=state["description"],
             price_block=state["price_block"],
             seller_price=seller_price,  # Pass original seller price for display
+            predicted_price=predicted_price,  # Pass predicted price (if available from future price prediction feature)
             listing_type=listing_type,  # Pass listing type for dynamic labeling
+            region=state.get("region", "US"),  # Pass region for currency formatting
             remove_price_from_desc=True  # Safety net: remove price even if guardrails missed it
         )
         

@@ -1,39 +1,42 @@
 """
-Gradio UI for Property Listing System - Iteration 1
+Gradio UI for Property List Mate - Simplified Essential Fields
 
-This module provides a Gradio-based web interface for the property listing system.
-Users can input property details and get AI-generated listings.
+This module provides a Gradio-based web interface for Property List Mate.
+Users can input essential property details and get AI-generated listings.
 """
 
 import gradio as gr
 from main import process_listing_request
+from utils.region_config import (
+    get_region_config,
+)
 
 
 def create_listing_ui(
     address: str,
     listing_type: str,
-    price: float,
+    property_type: str,
+    bedrooms: int | None,
+    bathrooms: float | None,
+    sqft: int | None,
     notes: str,
-    billing_cycle: str,
-    lease_term: str,
-    security_deposit: float,
-    hoa_fees: float,
-    property_taxes: float,
     progress: gr.Progress = gr.Progress(),
 ) -> tuple:
     """
     Process listing request from Gradio UI and return unified output.
     
+    The AI workflow focuses on generating content from essential property details
+    (address, type, size) with neighborhood enrichment. Administrative details 
+    (price, lease terms, etc.) can be added later when posting the listing.
+    
     Args:
         address: Property address
         listing_type: "sale" or "rent"
-        price: Asking price
-        notes: Property description/notes
-        billing_cycle: Rental billing cycle (rental only)
-        lease_term: Lease term (rental only)
-        security_deposit: Security deposit (rental only)
-        hoa_fees: HOA fees (sale only)
-        property_taxes: Property taxes (sale only)
+        property_type: Type of property (Apartment, House, etc.)
+        bedrooms: Number of bedrooms
+        bathrooms: Number of bathrooms
+        sqft: Square footage
+        notes: Property description/notes (features, amenities, etc.)
         
     Returns:
         Single unified output string containing either:
@@ -44,32 +47,32 @@ def create_listing_ui(
     progress(0.1, desc="Validating input...")
     
     # Handle None/empty values for required fields
-    # Convert to empty string or None as appropriate
     address = address.strip() if address else ""
     listing_type = listing_type.strip() if listing_type else ""
-    price = price if price is not None and price != "" else None
+    property_type = property_type.strip() if property_type else ""
+    
+    # Handle numeric required fields
+    bedrooms = bedrooms if bedrooms is not None and bedrooms >= 0 else None
+    bathrooms = bathrooms if bathrooms is not None and bathrooms >= 0 else None
+    sqft = sqft if sqft is not None and sqft > 0 else None
+    
     # Notes is optional - convert empty string to None
     notes = notes.strip() if notes and notes.strip() else None
     
-    # Convert empty strings to None for optional fields
-    billing_cycle = billing_cycle.strip() if billing_cycle and billing_cycle.strip() else None
-    lease_term = lease_term.strip() if lease_term and lease_term.strip() else None
-    security_deposit = security_deposit if security_deposit and security_deposit > 0 else None
-    hoa_fees = hoa_fees if hoa_fees and hoa_fees > 0 else None
-    property_taxes = property_taxes if property_taxes and property_taxes > 0 else None
+    # Default region to US
+    region = "US"
     
     # Process the request
     progress(0.3, desc="Processing listing request...")
     result = process_listing_request(
         address=address,
         listing_type=listing_type,
-        price=price,
+        property_type=property_type,
+        bedrooms=bedrooms,
+        bathrooms=bathrooms,
+        sqft=sqft,
         notes=notes,
-        billing_cycle=billing_cycle,
-        lease_term=lease_term,
-        security_deposit=security_deposit,
-        hoa_fees=hoa_fees,
-        property_taxes=property_taxes,
+        region=region,
     )
     
     # Format unified output
@@ -91,7 +94,6 @@ def create_listing_ui(
     progress(1.0, desc="Complete!")
     
     # Return output text, visibility update for output column, and re-enable button
-    # After first generation, show the output column
     return (
         output_text,  # Output display
         gr.update(visible=True),  # Show output column
@@ -106,7 +108,7 @@ def create_gradio_interface():
     Returns:
         Gradio Blocks interface
     """
-    # Custom CSS for gray color scheme only
+    # Custom CSS
     custom_css = """
     /* Primary button (Generate Listing) - Professional gray gradient */
     .gradio-container button.primary,
@@ -160,7 +162,7 @@ def create_gradio_interface():
     .gradio-container label,
     .gradio-container .label-wrap,
     .gradio-container .form-label {
-        color: #4b5563 !important; /* Medium gray */
+        color: #4b5563 !important;
         font-weight: 500 !important;
     }
     
@@ -170,18 +172,11 @@ def create_gradio_interface():
         color: #4b5563 !important;
     }
     
-    /* Soft gray colors for accordion headers */
-    .gradio-container .accordion-header,
-    .gradio-container .accordion-title {
-        color: #4b5563 !important;
-        font-weight: 500 !important;
-    }
-    
     /* Soft gray info text colors */
     .gradio-container .form-text,
     .gradio-container .info-text,
     .gradio-container small {
-        color: #6b7280 !important; /* Lighter gray for hints */
+        color: #6b7280 !important;
     }
     
     /* Remove blue highlights from selected radio buttons - use gray instead */
@@ -211,9 +206,88 @@ def create_gradio_interface():
         color: #1f2937 !important;
     }
     
-    /* Button row spacing */
+    /* Reduce spacing between form elements to make it more compact */
+    /* REDUCED BY 2px TOTAL: 8px -> 7px -> 6px */
+    .gradio-container [class*="form"] {
+        margin-bottom: 6px !important;
+    }
+    
+    /* Reduce spacing before button row - make it more compact */
+    /* REDUCED BY 2px TOTAL: margin-top 4px -> 3px -> 2px, margin-bottom 4px -> 3px -> 2px */
     .button-row {
         gap: 12px !important;
+        margin-top: 2px !important;
+        margin-bottom: 2px !important;
+    }
+    
+    /* Reduce spacing after textarea/notes field */
+    /* REDUCED BY 2px TOTAL: 4px -> 3px -> 2px */
+    .gradio-container textarea {
+        margin-bottom: 2px !important;
+    }
+    
+    /* Reduce overall container padding */
+    /* REDUCED BY 2px TOTAL: 8px -> 7px -> 6px */
+    .gradio-container {
+        padding: 6px !important;
+    }
+    
+    /* Reduce spacing in columns */
+    /* REDUCED BY 2px TOTAL: 6px -> 5px -> 4px */
+    .gradio-container [class*="column"] {
+        gap: 4px !important;
+    }
+    
+    /* Reduce header spacing */
+    /* REDUCED BY 2px TOTAL: 8px 0 4px 0 -> 7px 0 3px 0 -> 6px 0 2px 0 */
+    .gradio-container h1 {
+        margin: 6px 0 2px 0 !important;
+    }
+    
+    /* REDUCED BY 2px TOTAL: 2px 0 8px 0 -> 1px 0 7px 0 -> 0px 0 6px 0 */
+    .gradio-container p {
+        margin: 0px 0 6px 0 !important;
+    }
+    
+    /* Reduce spacing for info text */
+    /* REDUCED BY 2px TOTAL: margin-top 2px -> 1px -> 0px, margin-bottom 4px -> 3px -> 2px */
+    .gradio-container [class*="info"],
+    .gradio-container small {
+        margin-top: 0px !important;
+        margin-bottom: 2px !important;
+    }
+    
+    /* Compact centered layout for input column */
+    .input-column-container {
+        max-width: 600px !important;
+    }
+    
+    /* Center the main row when output is hidden */
+    .main-row-centered {
+        display: flex !important;
+        justify-content: center !important;
+    }
+    
+    /* When centered, the input column should be centered */
+    .main-row-centered .input-column-container {
+        margin: 0 auto !important;
+    }
+    
+    /* When not centered (output visible), input column stays on left with max-width */
+    .gradio-row:not(.main-row-centered) .input-column-container {
+        margin: 0 !important;
+    }
+    
+    /* Output column - proportional and centered when visible */
+    .output-column-container {
+        max-width: 600px !important;
+    }
+    
+    /* When output is visible, center both columns proportionally */
+    .gradio-row:not(.main-row-centered) {
+        display: flex !important;
+        justify-content: center !important;
+        gap: 20px !important;
     }
     
     /* Progress indicator centering */
@@ -230,7 +304,7 @@ def create_gradio_interface():
         height: 100% !important;
     }
     
-    /* Make accordion dropdown arrows more visible - Target all possible arrow elements */
+    /* Make accordion dropdown arrows more visible */
     .gradio-container [class*="accordion"] svg,
     .gradio-container [class*="accordion"] path,
     .gradio-container [class*="accordion"] [class*="icon"] svg,
@@ -243,7 +317,6 @@ def create_gradio_interface():
         stroke-width: 2.5 !important;
     }
     
-    /* Make accordion header arrows more prominent */
     .gradio-container [class*="accordion"] [class*="header"] svg,
     .gradio-container [class*="accordion"] [class*="title"] svg,
     .gradio-container [class*="accordion"] button svg {
@@ -256,7 +329,6 @@ def create_gradio_interface():
         stroke-width: 2.5 !important;
     }
     
-    /* Target Gradio's specific accordion arrow classes */
     .gradio-container .accordion-header button svg,
     .gradio-container .accordion-title button svg {
         color: #1f2937 !important;
@@ -266,12 +338,10 @@ def create_gradio_interface():
         stroke-width: 2.5 !important;
     }
     
-    /* Make accordion toggle button more visible */
     .gradio-container [class*="accordion"] button {
         opacity: 1 !important;
     }
     
-    /* Ensure arrow is visible on hover */
     .gradio-container [class*="accordion"]:hover svg,
     .gradio-container [class*="accordion"]:hover path {
         opacity: 1 !important;
@@ -280,16 +350,15 @@ def create_gradio_interface():
     }
     """
     
-    with gr.Blocks(title="Property Listing AI System - Iteration 1", theme=gr.themes.Soft(), css=custom_css) as demo:
-        gr.Markdown("<h1 style='text-align: center;'>🏠 Property Listing AI System</h1>", elem_classes=["centered-title"])
-        gr.Markdown("<p style='text-align: center;'>Generate professional property listings with AI assistance</p>", elem_classes=["centered-subtitle"])
+    with gr.Blocks(title="Property List Mate", theme=gr.themes.Soft(), css=custom_css) as demo:
+        gr.Markdown("<h1 style='text-align: center;'>🏠 Property List Mate</h1>")
+        gr.Markdown("<p style='text-align: center;'>Generate professional property listings with AI assistance</p>")
         gr.Markdown("---")
         
-        # Main container row - will be updated dynamically
-        # Initially shows only input (centered), then splits into two columns after first generation
-        with gr.Row() as main_row:
-            # Input column - always visible, centered when output is hidden
-            with gr.Column(scale=1, min_width=400) as input_column:
+        # Main container row
+        with gr.Row(elem_classes=["main-row-centered"]) as main_row:
+            # Input column
+            with gr.Column(scale=1, min_width=400, elem_classes=["input-column-container"]) as input_column:
                 
                 address_input = gr.Textbox(
                     label="Property Address *",
@@ -303,63 +372,49 @@ def create_gradio_interface():
                     value="sale"
                 )
                 
-                price_input = gr.Number(
-                    label="Asking Price (USD) *",
+                property_type_input = gr.Dropdown(
+                    label="Property Type *",
+                    choices=["Apartment", "House", "Condo", "Townhouse", "Studio", "Loft"],
+                    value=None,
+                    info="Select the type of property"
+                )
+                
+                with gr.Row():
+                    bedrooms_input = gr.Number(
+                        label="Bedrooms *",
+                        minimum=0,
+                        precision=0,
+                        value=None
+                    )
+                    bathrooms_input = gr.Number(
+                        label="Bathrooms *",
+                        minimum=0,
+                        precision=1,
+                        value=None
+                    )
+                
+                sqft_input = gr.Number(
+                    label="Square Footage *",
                     minimum=0,
-                    precision=2,
-                    info="Price for sale listings"
+                    precision=0,
+                    value=None,
+                    info="Total living area in square feet"
                 )
                 
                 notes_input = gr.Textbox(
                     label="Property Notes/Description",
-                    placeholder="Beautiful 2BR/1BA apartment with modern kitchen, hardwood floors, and great natural light. Close to subway and Central Park.",
-                    lines=5
+                    placeholder="Beautiful apartment with modern kitchen, hardwood floors, and great natural light. Close to subway and Central Park. Parking available, built in 2015.",
+                    lines=5,
+                    info="Add any special features, amenities, condition, year built, parking, or other details"
                 )
                 
-                # Rental-specific fields (initially visible if rent is selected)
-                rental_accordion = gr.Accordion("Rental-Specific Fields (Optional)", open=False, visible=False)
-                with rental_accordion:
-                    billing_cycle_input = gr.Textbox(
-                        label="Billing Cycle",
-                        placeholder="e.g., monthly, weekly",
-                        value=""
-                    )
-                    lease_term_input = gr.Textbox(
-                        label="Lease Term",
-                        placeholder="e.g., 12 months, 6 months",
-                        value=""
-                    )
-                    security_deposit_input = gr.Number(
-                        label="Security Deposit (USD)",
-                        value=0.0,
-                        minimum=0,
-                        precision=2
-                    )
-                
-                # Sale-specific fields (initially visible if sale is selected)
-                sale_accordion = gr.Accordion("Sale-Specific Fields (Optional)", open=False, visible=True)
-                with sale_accordion:
-                    hoa_fees_input = gr.Number(
-                        label="HOA Fees (USD/month)",
-                        value=0.0,
-                        minimum=0,
-                        precision=2
-                    )
-                    property_taxes_input = gr.Number(
-                        label="Property Taxes (USD/year)",
-                        value=0.0,
-                        minimum=0,
-                        precision=2
-                    )
-                
-                # Button row with spacing
+                # Button row
                 with gr.Row(elem_classes=["button-row"]):
                     submit_btn = gr.Button("Generate Listing", variant="primary", size="lg", scale=2, interactive=False)
                     clear_btn = gr.Button("Clear", variant="secondary", size="lg", scale=1)
             
-            # Output column - initially hidden, shown after first generation
-            with gr.Column(scale=1, visible=False) as output_column:
-                # Progress indicator - shown in the center of output area during processing
+            # Output column - initially hidden
+            with gr.Column(scale=1, visible=False, elem_classes=["output-column-container"]) as output_column:
                 progress_indicator = gr.Markdown(
                     value="",
                     visible=False,
@@ -367,82 +422,42 @@ def create_gradio_interface():
                     elem_id="progress-indicator"
                 )
                 
-                # Single unified output area - displays listing or errors dynamically
-                # This can be extended for chat capabilities in future iterations
                 output_display = gr.Markdown(
                     value="",
-                    label="Result",
+                    label="Generated Listing",
                     elem_classes=["output-display"]
                 )
         
-        # Function to update field visibility and labels based on listing type
-        def update_field_visibility(listing_type: str):
-            """Show/hide rental or sale fields and update price label based on listing type selection"""
-            if listing_type == "rent":
-                return (
-                    gr.update(visible=True),  # rental_accordion
-                    gr.update(visible=False),  # sale_accordion
-                    gr.update(label="Monthly Rent (USD) *", info="Monthly rental price")  # price_input
-                )
-            else:  # sale
-                return (
-                    gr.update(visible=False),  # rental_accordion
-                    gr.update(visible=True),  # sale_accordion
-                    gr.update(label="Asking Price (USD) *", info="Total sale price")  # price_input
-                )
-        
-        # Function to validate required fields and enable/disable submit button
-        def validate_required_fields(address: str, listing_type: str, price):
-            """Check if all required fields are filled and enable/disable submit button accordingly"""
-            # Check if address is provided and not empty
+        # Function to validate required fields
+        def validate_required_fields(address: str, listing_type: str, property_type: str, 
+                                     bedrooms, bathrooms, sqft):
+            """Check if all required fields are filled"""
             has_address = address and str(address).strip() != ""
-            
-            # Check if listing type is selected
             has_listing_type = listing_type and str(listing_type).strip() != ""
+            has_property_type = property_type and str(property_type).strip() != ""
             
-            # Check if price is provided and valid (not None, not 0, not empty string)
-            # Handle both float and None types
-            has_price = False
-            if price is not None:
-                try:
-                    price_float = float(price)
-                    has_price = price_float > 0  # Price must be greater than 0
-                except (ValueError, TypeError):
-                    has_price = False
+            # Check numeric fields are provided and valid
+            has_bedrooms = bedrooms is not None and bedrooms >= 0
+            has_bathrooms = bathrooms is not None and bathrooms >= 0
+            has_sqft = sqft is not None and sqft > 0
             
-            # Enable button only if all three required fields are filled
-            all_fields_filled = has_address and has_listing_type and has_price
+            all_fields_filled = (has_address and has_listing_type and has_property_type and 
+                                has_bedrooms and has_bathrooms and has_sqft)
             
             return gr.update(interactive=all_fields_filled)
         
-        # Update field visibility and price label when listing type changes
-        listing_type_input.change(
-            fn=update_field_visibility,
-            inputs=[listing_type_input],
-            outputs=[rental_accordion, sale_accordion, price_input]
-        ).then(
-            fn=validate_required_fields,
-            inputs=[address_input, listing_type_input, price_input],
-            outputs=[submit_btn]
-        )
+        # Validate on field changes
+        for field in [address_input, listing_type_input, property_type_input, 
+                     bedrooms_input, bathrooms_input, sqft_input]:
+            field.change(
+                fn=validate_required_fields,
+                inputs=[address_input, listing_type_input, property_type_input, 
+                       bedrooms_input, bathrooms_input, sqft_input],
+                outputs=[submit_btn]
+            )
         
-        # Validate required fields when address changes
-        address_input.change(
-            fn=validate_required_fields,
-            inputs=[address_input, listing_type_input, price_input],
-            outputs=[submit_btn]
-        )
-        
-        # Validate required fields when price changes
-        price_input.change(
-            fn=validate_required_fields,
-            inputs=[address_input, listing_type_input, price_input],
-            outputs=[submit_btn]
-        )
-        
-        # Function to show progress indicator and output column
+        # Function to show progress indicator
         def show_progress_indicator():
-            """Show progress indicator in the center of output area and make output column visible"""
             progress_html = """
             <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 500px; height: 100%; text-align: center; padding: 40px 20px;">
                 <div style="display: inline-block; width: 60px; height: 60px; border: 5px solid #e0e0e0; border-top: 5px solid #4b5563; border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 20px;"></div>
@@ -457,169 +472,89 @@ def create_gradio_interface():
             </style>
             """
             return (
-                "",  # Clear output display
+                "",  # Clear output
                 gr.update(interactive=False),  # Disable button
                 gr.update(visible=True),  # Show output column
-                gr.update(visible=True, value=progress_html),  # Show progress indicator in output area
+                gr.update(visible=True, value=progress_html),  # Show spinner
+                gr.update(elem_classes=[]),  # Remove centered class
             )
         
-        # Function to disable all input fields (greyed out, non-editable)
+        # Function to disable all inputs
         def disable_all_inputs():
-            """Disable all input fields to prevent editing during processing"""
-            return (
-                gr.update(interactive=False),  # address_input
-                gr.update(interactive=False),  # listing_type_input
-                gr.update(interactive=False),  # price_input
-                gr.update(interactive=False),  # notes_input
-                gr.update(interactive=False),  # billing_cycle_input
-                gr.update(interactive=False),  # lease_term_input
-                gr.update(interactive=False),  # security_deposit_input
-                gr.update(interactive=False),  # hoa_fees_input
-                gr.update(interactive=False),  # property_taxes_input
-            )
+            return tuple([gr.update(interactive=False)] * 7)
         
-        # Function to re-enable all input fields
+        # Function to enable all inputs
         def enable_all_inputs():
-            """Re-enable all input fields after processing completes"""
-            return (
-                gr.update(interactive=True),  # address_input
-                gr.update(interactive=True),  # listing_type_input
-                gr.update(interactive=True),  # price_input
-                gr.update(interactive=True),  # notes_input
-                gr.update(interactive=True),  # billing_cycle_input
-                gr.update(interactive=True),  # lease_term_input
-                gr.update(interactive=True),  # security_deposit_input
-                gr.update(interactive=True),  # hoa_fees_input
-                gr.update(interactive=True),  # property_taxes_input
-            )
+            return tuple([gr.update(interactive=True)] * 7)
         
-        # Function to hide progress indicator
+        # Function to hide progress
         def hide_progress_indicator():
-            """Hide progress indicator"""
             return gr.update(visible=False, value="")
         
-        # Function to clear previous output and disable button when processing starts
-        def clear_output_and_disable_button():
-            """Clear previous error/output messages and disable button immediately"""
-            return (
-                "",  # Clear output display
-                gr.update(interactive=False),  # Disable button
-            )
-        
-        # Function to clear all inputs and output
+        # Function to clear all fields
         def clear_all_fields():
-            """Reset all input fields to empty/default values and clear output"""
             return (
-                "",  # address_input (empty string)
-                "sale",  # listing_type_input (default to sale)
-                gr.update(value=None, label="Asking Price (USD) *", info="Price for sale listings"),  # price_input (reset value and label)
-                "",  # notes_input (empty string)
-                gr.update(visible=False),  # rental_accordion (hide for sale default)
-                gr.update(visible=True),  # sale_accordion (show for sale default)
-                "",  # billing_cycle_input (empty string)
-                "",  # lease_term_input (empty string)
-                0.0,  # security_deposit_input (reset to 0)
-                0.0,  # hoa_fees_input (reset to 0)
-                0.0,  # property_taxes_input (reset to 0)
-                "",  # output_display (clear output)
-                gr.update(visible=False),  # output_column (hide output column)
-                gr.update(visible=False, value=""),  # progress_indicator (hide)
-                gr.update(interactive=False),  # submit_btn (disable button since fields are cleared)
+                "",  # address
+                "sale",  # listing_type
+                None,  # property_type
+                None,  # bedrooms
+                None,  # bathrooms
+                None,  # sqft
+                "",  # notes
+                "",  # output_display
+                gr.update(visible=False),  # output_column
+                gr.update(visible=False, value=""),  # progress_indicator
+                gr.update(interactive=False),  # submit_btn
+                gr.update(elem_classes=["main-row-centered"]),  # main_row
             )
         
-        # Connect clear button
-        # When clicked: Reset all inputs to empty/default and clear output
+        # Clear button
         clear_btn.click(
             fn=clear_all_fields,
             inputs=[],
             outputs=[
-                address_input,
-                listing_type_input,
-                price_input,  # Resets value and label
-                notes_input,
-                rental_accordion,  # Reset accordion visibility
-                sale_accordion,  # Reset accordion visibility
-                billing_cycle_input,
-                lease_term_input,
-                security_deposit_input,
-                hoa_fees_input,
-                property_taxes_input,
-                output_display,
-                output_column,
-                progress_indicator,
-                submit_btn,  # Disable button when fields are cleared
+                address_input, listing_type_input, property_type_input,
+                bedrooms_input, bathrooms_input, sqft_input, notes_input,
+                output_display, output_column, progress_indicator, submit_btn, main_row
             ],
         )
         
-        # Connect submit button
-        # When clicked: 
-        # 1. Show progress indicator and disable button
-        # 2. Disable all input fields (greyed out, no progress bars)
-        # 3. Generate listing (with progress bar on right side only)
-        # 4. Hide progress indicator and show results
-        # 5. Re-enable all input fields and button
+        # Submit button
         submit_btn.click(
             fn=show_progress_indicator,
             inputs=[],
             outputs=[
-                output_display,  # Clear output display immediately
-                submit_btn,      # Disable button immediately
-                output_column,   # Show output column (so progress is visible)
-                progress_indicator,  # Show progress indicator in output area
+                output_display, submit_btn, output_column, progress_indicator, main_row
             ],
         ).then(
             fn=disable_all_inputs,
             inputs=[],
             outputs=[
-                address_input,
-                listing_type_input,
-                price_input,
-                notes_input,
-                billing_cycle_input,
-                lease_term_input,
-                security_deposit_input,
-                hoa_fees_input,
-                property_taxes_input,
+                address_input, listing_type_input, property_type_input,
+                bedrooms_input, bathrooms_input, sqft_input, notes_input
             ],
         ).then(
             fn=create_listing_ui,
             inputs=[
-                address_input,
-                listing_type_input,
-                price_input,
-                notes_input,
-                billing_cycle_input,
-                lease_term_input,
-                security_deposit_input,
-                hoa_fees_input,
-                property_taxes_input,
+                address_input, listing_type_input, property_type_input,
+                bedrooms_input, bathrooms_input, sqft_input, notes_input
             ],
             outputs=[
-                output_display,  # Output text
-                output_column,   # Keep output column visible
-                submit_btn,      # Re-enable button
+                output_display, output_column, submit_btn
             ],
-            show_progress="full",  # Show full progress bar with timer (only on right side)
+            show_progress="full",
         ).then(
             fn=hide_progress_indicator,
             inputs=[],
-            outputs=[progress_indicator],  # Hide progress indicator when output is ready
+            outputs=[progress_indicator],
         ).then(
             fn=enable_all_inputs,
             inputs=[],
             outputs=[
-                address_input,
-                listing_type_input,
-                price_input,
-                notes_input,
-                billing_cycle_input,
-                lease_term_input,
-                security_deposit_input,
-                hoa_fees_input,
-                property_taxes_input,
+                address_input, listing_type_input, property_type_input,
+                bedrooms_input, bathrooms_input, sqft_input, notes_input
             ],
         )
-        
     
     return demo
 
@@ -628,7 +563,6 @@ def main():
     """Launch Gradio interface"""
     import os
     demo = create_gradio_interface()
-    # Use environment variable or default to 7860
     port = int(os.getenv("GRADIO_SERVER_PORT", 7860))
     print(f"Starting Gradio server on port {port}...")
     demo.launch(share=False, server_name="0.0.0.0", server_port=port)
@@ -636,4 +570,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

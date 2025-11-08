@@ -72,32 +72,21 @@ def extract_keywords_from_notes(notes: str) -> List[str]:
     return keywords
 
 
-def build_neighborhood_search_query(
-    address: str,
-    notes: str = "",
-    listing_type: Optional[str] = None
-) -> str:
+def build_neighborhood_quality_search_query(address: str) -> str:
     """
-    Build search query for neighborhood information.
+    Build search query for neighborhood quality information.
     
-    Only searches for neighborhood if it's not already in the address.
-    ZIP code is NOT searched - it should come from address parsing.
+    Searches for: crime rates, quality of life, safety, neighborhood statistics.
+    Uses ONLY the address - no other parameters.
     
     Args:
-        address: Property address
-        notes: Normalized notes (optional, for context)
-        listing_type: "sale" or "rent" (optional, for context)
+        address: Property address (ONLY parameter needed)
         
     Returns:
         Search query string
     """
-    # Start with address
-    query_parts = [address]
-    
-    # Add neighborhood keywords (not ZIP code - that comes from address)
-    query_parts.append("neighborhood area")
-    
-    query = " ".join(query_parts)
+    # Use ONLY address for search query
+    query = f"{address} crime rates quality of life safety neighborhood statistics"
     return query.strip()
 
 
@@ -193,42 +182,21 @@ def build_amenities_search_query(
     return query.strip()
 
 
-def build_amenities_search_query(
-    address: str,
-    amenity_type: str,
-    notes: str = "",
-    listing_type: Optional[str] = None
-) -> str:
+def build_amenities_search_query(address: str) -> str:
     """
-    Build search query for specific amenity type.
+    Build search query for nearby amenities.
     
-    Focuses on finding actual places/names, not generic information.
-    Searches for: schools, supermarkets, parks, transportation.
+    Searches for: schools, shopping amenities, supermarkets, parks, subway, transportation.
+    Uses ONLY the address - no other parameters.
     
     Args:
-        address: Property address
-        amenity_type: Type of amenity ("schools", "supermarkets", "parks", "transportation")
-        notes: Normalized notes (optional, to check if already mentioned)
-        listing_type: "sale" or "rent" (optional, affects query focus)
+        address: Property address (ONLY parameter needed)
         
     Returns:
         Search query string
     """
-    query_parts = [address]
-    
-    # Build specific query based on amenity type
-    if amenity_type == "schools":
-        query_parts.append("schools near")
-    elif amenity_type == "supermarkets":
-        query_parts.append("supermarkets grocery stores near")
-    elif amenity_type == "parks":
-        query_parts.append("parks near")
-    elif amenity_type == "transportation":
-        query_parts.append("transportation subway bus metro near")
-    else:
-        query_parts.append(f"{amenity_type} near")
-    
-    query = " ".join(query_parts)
+    # Use ONLY address for search query - search for all amenities in one query
+    query = f"{address} schools shopping amenities supermarkets parks subway transportation near"
     return query.strip()
 
 
@@ -341,6 +309,14 @@ def extract_neighborhood(search_results: List[Dict[str, Any]], address: str) -> 
     Returns:
         Neighborhood name if found, None otherwise
     """
+    # Invalid words that should never be used as neighborhood names
+    INVALID_NEIGHBORHOOD_WORDS = [
+        "what", "where", "when", "who", "why", "how", "which", "this", "that",
+        "the", "and", "or", "for", "with", "from", "about", "into", "onto",
+        "area", "neighborhood", "location", "place", "city", "state", "zip",
+        "code", "street", "avenue", "road", "drive", "lane", "boulevard"
+    ]
+    
     neighborhood_patterns = [
         r'(?:in|located in|neighborhood of|area of)\s+([A-Z][a-zA-Z\s]+?)(?:,|\.|$)',
         r'([A-Z][a-zA-Z\s]+?)\s+neighborhood',
@@ -367,11 +343,23 @@ def extract_neighborhood(search_results: List[Dict[str, Any]], address: str) -> 
                         # Clean up newlines and extra whitespace
                         neighborhood = re.sub(r'\s+', ' ', neighborhood)  # Normalize whitespace
                         neighborhood = neighborhood.strip()
+                        
+                        # Validate neighborhood name
+                        neighborhood_lower = neighborhood.lower()
+                        
+                        # Filter out invalid words
+                        if neighborhood_lower in INVALID_NEIGHBORHOOD_WORDS:
+                            continue
+                        
+                        # Check if it contains invalid words
+                        words = neighborhood_lower.split()
+                        if any(word in INVALID_NEIGHBORHOOD_WORDS for word in words):
+                            continue
+                        
                         # Filter out common false positives
                         if len(neighborhood) > 3 and len(neighborhood) < 50:
-                            # Exclude common words that aren't neighborhoods
-                            exclude_words = ["the", "and", "or", "for", "with", "from"]
-                            if not any(word in neighborhood.lower() for word in exclude_words):
+                            # Must start with capital letter and look like a proper name
+                            if neighborhood[0].isupper() and not neighborhood.isdigit():
                                 return neighborhood.title()
             except (TypeError, AttributeError):
                 # Skip if pattern matching fails
@@ -419,26 +407,128 @@ def extract_landmarks(search_results: List[Dict[str, Any]], max_landmarks: int =
     return landmarks[:max_landmarks]
 
 
-def extract_amenities(
-    search_results: List[Dict[str, Any]], 
-    amenity_type: str,
-    max_items: int = 3
-) -> List[str]:
+def extract_neighborhood_quality(search_results: List[Dict[str, Any]]) -> Dict[str, Any]:
     """
-    Extract amenities of a specific type from search results.
+    Extract neighborhood quality information from search results.
     
-    Improved extraction to get actual names, filtering out HTML artifacts
-    and generic text.
+    Extracts information about:
+    - Crime rates
+    - Quality of life indicators
+    - Safety statistics
+    - Neighborhood characteristics
     
     Args:
         search_results: List of search result dictionaries from Tavily
-        amenity_type: Type of amenity ("schools", "supermarkets", "parks", "transportation")
-        max_items: Maximum number of items to return
         
     Returns:
-        List of clean amenity names
+        Dictionary with neighborhood quality information:
+        {
+            "crime_info": str,  # Summary of crime rates/safety
+            "quality_of_life": str,  # Quality of life indicators
+            "safety_info": str,  # Safety information
+            "neighborhood": Optional[str]  # Neighborhood name if found
+        }
     """
-    amenities = []
+    quality_info = {
+        "crime_info": None,
+        "quality_of_life": None,
+        "safety_info": None,
+        "neighborhood": None
+    }
+    
+    # Patterns to extract crime and safety information
+    crime_patterns = [
+        r'crime rate[:\s]+([^\.]+)',
+        r'safety[:\s]+([^\.]+)',
+        r'crime statistics[:\s]+([^\.]+)',
+    ]
+    
+    # Patterns to extract quality of life information
+    quality_patterns = [
+        r'quality of life[:\s]+([^\.]+)',
+        r'livability[:\s]+([^\.]+)',
+        r'neighborhood rating[:\s]+([^\.]+)',
+    ]
+    
+    # Try to extract neighborhood name
+    neighborhood = extract_neighborhood(search_results, "")
+    if neighborhood:
+        quality_info["neighborhood"] = neighborhood
+    
+    # Combine all search result content
+    combined_text = ""
+    for result in search_results:
+        content = result.get("content", "") or ""
+        title = result.get("title", "") or ""
+        combined_text += f"{title} {content} "
+    
+    combined_text = combined_text.lower()
+    
+    # Extract crime/safety information
+    crime_snippets = []
+    for pattern in crime_patterns:
+        matches = re.findall(pattern, combined_text, re.IGNORECASE)
+        crime_snippets.extend(matches[:2])  # Take first 2 matches
+    
+    if crime_snippets:
+        quality_info["crime_info"] = ". ".join(crime_snippets[:3])[:200]  # Limit length
+    
+    # Extract quality of life information
+    quality_snippets = []
+    for pattern in quality_patterns:
+        matches = re.findall(pattern, combined_text, re.IGNORECASE)
+        quality_snippets.extend(matches[:2])
+    
+    if quality_snippets:
+        quality_info["quality_of_life"] = ". ".join(quality_snippets[:3])[:200]
+    
+    # Extract general safety information
+    safety_keywords = ["safe", "safety", "secure", "low crime", "well-maintained"]
+    safety_snippets = []
+    sentences = combined_text.split('.')
+    for sentence in sentences:
+        if any(keyword in sentence for keyword in safety_keywords):
+            if len(sentence.strip()) > 20:  # Only meaningful sentences
+                safety_snippets.append(sentence.strip()[:150])
+                if len(safety_snippets) >= 2:
+                    break
+    
+    if safety_snippets:
+        quality_info["safety_info"] = ". ".join(safety_snippets)
+    return quality_info
+
+
+def extract_amenities(
+    search_results: List[Dict[str, Any]], 
+    amenity_type: str = None,  # Now optional - we extract all amenities from combined results
+    max_items: int = 3
+) -> Dict[str, List[str]]:
+    """
+    Extract amenities from search results (all types combined).
+    
+    Extracts schools, supermarkets, parks, and transportation from combined search results.
+    Improved extraction to get actual names, filtering out HTML artifacts and generic text.
+    
+    Args:
+        search_results: List of search result dictionaries from Tavily
+        amenity_type: Optional - kept for compatibility, but we extract all types
+        max_items: Maximum number of items per category to return
+        
+    Returns:
+        Dictionary with amenities by category:
+        {
+            "schools": List[str],
+            "supermarkets": List[str],
+            "parks": List[str],
+            "transportation": List[str]
+        }
+    """
+    amenities_by_type = {
+        "schools": [],
+        "supermarkets": [],
+        "parks": [],
+        "transportation": []
+    }
     
     # Patterns for different amenity types (improved to capture actual names)
     patterns = {
@@ -464,48 +554,55 @@ def extract_amenities(
         ],
     }
     
-    # Words to filter out (HTML artifacts, generic text)
+    # Words to filter out (HTML artifacts, generic text, invalid words)
     filter_words = [
         "overview", "website", "contacts", "information", "school website",
         "click", "here", "more", "details", "page", "home", "about",
-        "contact", "menu", "navigation", "search", "login", "sign up"
+        "contact", "menu", "navigation", "search", "login", "sign up",
+        "what", "where", "when", "who", "why", "how", "which", "this", "that"
     ]
     
-    pattern_list = patterns.get(amenity_type, [])
-    
-    for result in search_results:
+    # Extract all amenity types from combined search results
+    for result_idx, result in enumerate(search_results, 1):
         content = result.get("content", "") or ""
         title = result.get("title", "") or ""
         combined_text = f"{title} {content}"
         
-        for pattern in pattern_list:
-            matches = re.findall(pattern, combined_text, re.IGNORECASE)
-            for match in matches:
-                amenity = match.strip() if isinstance(match, str) else str(match).strip()
-                
-                # Filter out invalid results
-                if len(amenity) < 3 or len(amenity) > 100:
-                    continue
-                
-                # Filter out HTML artifacts and generic text
-                amenity_lower = amenity.lower()
-                if any(filter_word in amenity_lower for filter_word in filter_words):
-                    continue
-                
-                # Filter out results that are just numbers or single words (unless it's a school number)
-                if amenity_type != "schools" and len(amenity.split()) < 2:
-                    continue
-                
-                # Clean up common artifacts
-                amenity = re.sub(r'\s+', ' ', amenity)  # Normalize whitespace
-                amenity = amenity.strip()
-                
-                if amenity and amenity not in amenities:
-                    amenities.append(amenity)
-                    if len(amenities) >= max_items:
-                        return amenities
+        # Extract each amenity type
+        for amenity_type, pattern_list in patterns.items():
+            if len(amenities_by_type[amenity_type]) >= max_items:
+                continue  # Already have enough of this type
+            
+            for pattern in pattern_list:
+                matches = re.findall(pattern, combined_text, re.IGNORECASE)
+                for match in matches:
+                    amenity = match.strip() if isinstance(match, str) else str(match).strip()
+                    
+                    # Filter out invalid results
+                    if len(amenity) < 3 or len(amenity) > 100:
+                        continue
+                    
+                    # Filter out HTML artifacts and generic text
+                    amenity_lower = amenity.lower()
+                    if any(filter_word in amenity_lower for filter_word in filter_words):
+                        continue
+                    
+                    # Filter out results that are just numbers or single words (unless it's a school number)
+                    if amenity_type != "schools" and len(amenity.split()) < 2:
+                        continue
+                    
+                    # Clean up common artifacts
+                    amenity = re.sub(r'\s+', ' ', amenity)  # Normalize whitespace
+                    amenity = amenity.strip()
+                    
+                    if amenity and amenity not in amenities_by_type[amenity_type]:
+                        amenities_by_type[amenity_type].append(amenity)
+                        if len(amenities_by_type[amenity_type]) >= max_items:
+                            break
+                if len(amenities_by_type[amenity_type]) >= max_items:
+                    break
     
-    return amenities[:max_items]
+    return amenities_by_type
 
 
 # ============================================================================
@@ -518,11 +615,17 @@ def perform_tavily_search(
     max_results: int = 3
 ) -> List[Dict[str, Any]]:
     """
-    Perform a Tavily web search.
+    Perform a Tavily web search with tracing.
     
     This function executes an actual web search via the Tavily API.
     The search_tool.invoke() call makes an HTTP request to Tavily's servers
     which then searches the web and returns results.
+    
+    All web searches are traced for observability, including:
+    - Query string
+    - Execution time
+    - Result count
+    - Success/failure status
     
     Args:
         query: Search query string
@@ -537,19 +640,33 @@ def perform_tavily_search(
         results in one HTTP request to Tavily's API.
     """
     try:
-        # THIS IS WHERE THE ACTUAL WEB SEARCH HAPPENS
-        # search_tool.invoke() makes an HTTP request to Tavily API
-        # which searches the web and returns results
-        results = search_tool.invoke({"query": query})
+        # Import tracing utilities
+        from .tracing import trace_web_search, set_trace_metadata
         
-        # TavilySearch returns a dictionary with 'results' key containing list of results
-        if isinstance(results, dict) and "results" in results:
-            return results["results"][:max_results]
-        # Fallback: if it's already a list
-        if isinstance(results, list):
-            return results[:max_results]
-        return []
-    except Exception:
+        # Use tracing wrapper to track web search execution
+        results_list, metrics = trace_web_search(
+            search_tool=search_tool,
+            query=query,
+            max_results=max_results
+        )
+        
+        # Store web search metrics in trace metadata
+        # Use a list to track multiple searches
+        from .tracing import get_trace_metadata
+        existing_metadata = get_trace_metadata()
+        existing_searches = existing_metadata.get("web_searches", [])
+        existing_searches.append(metrics)
+        set_trace_metadata("web_searches", existing_searches)
+        
+        return results_list
+    except Exception as e:
+        print(f"[WEB SEARCH ERROR] Query: '{query}'")
+        print(f"[WEB SEARCH ERROR] {type(e).__name__}: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        # Store error in trace metadata
+        from .tracing import set_trace_metadata
+        set_trace_metadata("web_search_error", str(e))
         # Return empty list on error (enrichment is optional)
         return []
 
@@ -613,12 +730,9 @@ def enrich_property_data_comprehensive(
     # Search 1: Neighborhood and ZIP code
     # Use address + notes context to find neighborhood
     # WEB SEARCH #1: Executes here via perform_tavily_search()
+    # Note: Legacy function - using neighborhood quality search query (address only)
     try:
-        neighborhood_query = build_neighborhood_search_query(
-            address=address,
-            notes=notes,
-            listing_type=listing_type
-        )
+        neighborhood_query = build_neighborhood_quality_search_query(address)
         # This call executes an actual web search via Tavily API
         neighborhood_results = perform_tavily_search(neighborhood_query, search_tool)
         
@@ -635,14 +749,11 @@ def enrich_property_data_comprehensive(
         pass
     
     # Search 2: Landmarks
-    # Use address + notes to find relevant landmarks
+    # Use address only to find relevant landmarks
     # WEB SEARCH #2: Executes here via perform_tavily_search()
+    # Note: Legacy function - using address only
     try:
-        landmarks_query = build_landmarks_search_query(
-            address=address,
-            notes=notes,
-            listing_type=listing_type
-        )
+        landmarks_query = f"{address} nearby landmarks attractions points of interest"
         # This call executes an actual web search via Tavily API
         landmarks_results = perform_tavily_search(landmarks_query, search_tool)
         
@@ -669,20 +780,19 @@ def enrich_property_data_comprehensive(
     
     # Searches 3-6: Amenities (one web search per amenity type)
     # WEB SEARCHES #3, #4, #5, #6: Execute here via perform_tavily_search() in loop
+    # Note: Legacy function - using address only for queries
     for amenity_type in amenity_types:
         try:
-            amenity_query = build_amenities_search_query(
-                address=address,
-                amenity_type=amenity_type,
-                notes=notes,
-                listing_type=listing_type
-            )
+            # Use address-only query (legacy function)
+            amenity_query = build_amenities_search_query(address)
+            # Extract all amenities from combined results
             # This call executes an actual web search via Tavily API (4 times total)
             amenity_results = perform_tavily_search(amenity_query, search_tool)
             
             if amenity_results:
-                amenities = extract_amenities(amenity_results, amenity_type, max_items=3)
-                enrichment_data["key_amenities"][amenity_type] = amenities
+                # Extract all amenities and get the specific type we need
+                all_amenities = extract_amenities(amenity_results, max_items=3)
+                enrichment_data["key_amenities"][amenity_type] = all_amenities.get(amenity_type, [])
         except Exception:
             # Continue if this search fails
             pass
@@ -696,36 +806,35 @@ def enrich_property_data_comprehensive(
 
 def enrich_property_data(
     address: str,
-    notes: str = "",
-    listing_type: Optional[str] = None,
-    price: Optional[float] = None,
-    search_tool: Any = None,
-    use_comprehensive: bool = False
+    search_tool: Any = None
 ) -> Dict[str, Any]:
     """
-    Perform optimized property data enrichment using web search.
+    Perform property data enrichment using exactly 2 web search calls.
     
-    FOCUS: Find amenities/features near the address to enrich listing description.
-    - ZIP code: Parsed from address (not searched)
-    - Neighborhood: Extracted from web search if not in address
-    - Amenities: Schools, Supermarkets, Parks, Transportation (searched in parallel)
+    WEB SEARCH CALL 1: Amenities search
+    - Uses ONLY address
+    - Searches for: schools, shopping amenities, supermarkets, parks, subway, transportation
     
-    Intelligently skips amenities already mentioned in user's notes (except parks).
+    WEB SEARCH CALL 2: Neighborhood quality search
+    - Uses ONLY address
+    - Searches for: crime rates, quality of life, safety, neighborhood statistics
+    
+    ZIP code is parsed from address (not searched).
     
     Args:
-        address: Property address (normalized, preferred)
-        notes: Normalized notes (optional, may contain location/amenity hints)
-        listing_type: "sale" or "rent" (optional, affects search priorities)
-        price: Property price (optional, can help understand neighborhood)
+        address: Property address (ONLY parameter needed - no notes, listing_type, price)
         search_tool: TavilySearch tool instance
-        use_comprehensive: If True, use comprehensive 6-search version (legacy)
         
     Returns:
         Dictionary with enrichment data:
         {
             "zip_code": Optional[str],  # Parsed from address
-            "neighborhood": Optional[str],  # Extracted from web search
-            "landmarks": List[str],  # Empty in optimized version
+            "neighborhood": Optional[str],  # Extracted from neighborhood quality search
+            "neighborhood_quality": {  # New field for quality information
+                "crime_info": Optional[str],
+                "quality_of_life": Optional[str],
+                "safety_info": Optional[str]
+            },
             "key_amenities": {
                 "schools": List[str],
                 "supermarkets": List[str],
@@ -734,21 +843,15 @@ def enrich_property_data(
             }
         }
     """
-    # Allow fallback to comprehensive version if needed
-    if use_comprehensive:
-        return enrich_property_data_comprehensive(
-            address=address,
-            notes=notes,
-            listing_type=listing_type,
-            price=price,
-            search_tool=search_tool
-        )
-    
     # Initialize enrichment data structure
     enrichment_data = {
         "zip_code": None,
         "neighborhood": None,
-        "landmarks": [],  # Not searched in optimized version
+        "neighborhood_quality": {
+            "crime_info": None,
+            "quality_of_life": None,
+            "safety_info": None
+        },
         "key_amenities": {
             "schools": [],
             "supermarkets": [],
@@ -763,86 +866,137 @@ def enrich_property_data(
     if zip_code:
         print(f"[DEBUG] Enrichment: Parsed ZIP code from address: {zip_code}")
     
-    # Step 2: Determine which amenities to search for
-    # Check if amenities are already in notes (but always search for parks as requested)
-    amenity_types_to_search = []
+    # Step 2: Build search queries (ONLY using address)
+    amenities_query = build_amenities_search_query(address)
+    neighborhood_quality_query = build_neighborhood_quality_search_query(address)
     
-    if not check_amenity_in_notes(notes, "schools"):
-        amenity_types_to_search.append("schools")
-    else:
-        print(f"[DEBUG] Enrichment: Skipping schools search (already in notes)")
+    print("\n" + "=" * 80)
+    print("[WEB SEARCH] QUERY COMPOSITION")
+    print("=" * 80)
+    print(f"[WEB SEARCH 1] AMENITIES:")
+    print(f"  Query: {amenities_query}")
+    print("")
+    print(f"[WEB SEARCH 2] NEIGHBORHOOD QUALITY:")
+    print(f"  Query: {neighborhood_quality_query}")
+    print("=" * 80 + "\n")
     
-    if not check_amenity_in_notes(notes, "supermarkets"):
-        amenity_types_to_search.append("supermarkets")
-    else:
-        print(f"[DEBUG] Enrichment: Skipping supermarkets search (already in notes)")
-    
-    # Always search for parks (as per user request)
-    amenity_types_to_search.append("parks")
-    
-    if not check_amenity_in_notes(notes, "transportation"):
-        amenity_types_to_search.append("transportation")
-    else:
-        print(f"[DEBUG] Enrichment: Skipping transportation search (already in notes)")
-    
-    # Step 3: Build search queries
-    neighborhood_query = build_neighborhood_search_query(
-        address=address,
-        notes=notes,
-        listing_type=listing_type
-    )
-    
-    # Build queries for each amenity type
-    amenity_queries = {}
-    for amenity_type in amenity_types_to_search:
-        amenity_queries[amenity_type] = build_amenities_search_query(
-            address=address,
-            amenity_type=amenity_type,
-            notes=notes,
-            listing_type=listing_type
-        )
-    
-    # Step 4: Execute searches in parallel
-    def execute_neighborhood_search():
-        """Execute neighborhood search"""
+    # Step 3: Execute exactly 2 web searches in parallel
+    def execute_amenities_search():
+        """Execute amenities search (WEB SEARCH CALL 1)"""
         try:
-            results = perform_tavily_search(neighborhood_query, search_tool)
+            print(f"[WEB SEARCH 1] Executing: {amenities_query}")
+            results = perform_tavily_search(amenities_query, search_tool, max_results=3)
+            
+            print(f"[WEB SEARCH 1] Results: {len(results) if results else 0} items")
+            
             if results:
-                neighborhood = extract_neighborhood(results, address)
-                return {"neighborhood": neighborhood}
+                # Print raw results for debugging
+                for i, result in enumerate(results, 1):
+                    print(f"\n[WEB SEARCH 1] Result {i}:")
+                    print(f"  Title: {result.get('title', 'N/A')}")
+                    print(f"  URL: {result.get('url', 'N/A')}")
+                    content = result.get('content', '')
+                    if content:
+                        print(f"  Content: {content}")
+                    else:
+                        print(f"  Content: (empty)")
+                
+                amenities_dict = extract_amenities(results, max_items=3)
+                print(f"\n[WEB SEARCH 1] Extracted: {amenities_dict}\n")
+                return amenities_dict
+            else:
+                print("[WEB SEARCH 1] No results\n")
         except Exception as e:
-            print(f"[DEBUG] Neighborhood search failed: {e}")
-        return {"neighborhood": None}
+            print(f"[WEB SEARCH 1] ERROR: {type(e).__name__}: {str(e)}\n")
+            import traceback
+            traceback.print_exc()
+            return {
+                "schools": [],
+                "supermarkets": [],
+                "parks": [],
+                "transportation": []
+            }
     
-    def execute_amenity_search(amenity_type: str, query: str):
-        """Execute search for specific amenity type"""
+    def execute_neighborhood_quality_search():
+        """Execute neighborhood quality search (WEB SEARCH CALL 2)"""
         try:
-            results = perform_tavily_search(query, search_tool)
+            print(f"[WEB SEARCH 2] Executing: {neighborhood_quality_query}")
+            results = perform_tavily_search(neighborhood_quality_query, search_tool, max_results=3)
+            
+            print(f"[WEB SEARCH 2] Results: {len(results) if results else 0} items")
+            
             if results:
-                amenities = extract_amenities(results, amenity_type, max_items=3)
-                return {amenity_type: amenities}
+                # Print raw results for debugging
+                for i, result in enumerate(results, 1):
+                    print(f"\n[WEB SEARCH 2] Result {i}:")
+                    print(f"  Title: {result.get('title', 'N/A')}")
+                    print(f"  URL: {result.get('url', 'N/A')}")
+                    content = result.get('content', '')
+                    if content:
+                        print(f"  Content: {content}")
+                    else:
+                        print(f"  Content: (empty)")
+                
+                quality_info = extract_neighborhood_quality(results)
+                print(f"\n[WEB SEARCH 2] Extracted: {quality_info}\n")
+                return quality_info
+            else:
+                print("[WEB SEARCH 2] No results\n")
         except Exception as e:
-            print(f"[DEBUG] {amenity_type} search failed: {e}")
-        return {amenity_type: []}
+            print(f"[WEB SEARCH 2] ERROR: {type(e).__name__}: {str(e)}\n")
+            import traceback
+            traceback.print_exc()
+        return {
+            "crime_info": None,
+            "quality_of_life": None,
+            "safety_info": None,
+            "neighborhood": None
+        }
     
-    # Execute all searches in parallel
-    with ThreadPoolExecutor(max_workers=len(amenity_queries) + 1) as executor:
-        # Submit neighborhood search
-        neighborhood_future = executor.submit(execute_neighborhood_search)
+    # Execute both searches in parallel
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        amenities_future = executor.submit(execute_amenities_search)
+        quality_future = executor.submit(execute_neighborhood_quality_search)
         
-        # Submit all amenity searches
-        amenity_futures = {}
-        for amenity_type, query in amenity_queries.items():
-            amenity_futures[amenity_type] = executor.submit(execute_amenity_search, amenity_type, query)
+        # Wait for both to complete and collect results
+        try:
+            amenities_result = amenities_future.result(timeout=30)
+        except Exception as e:
+            print(f"[WEB SEARCH 1] Timeout/Error: {e}")
+            amenities_result = {
+                "schools": [],
+                "supermarkets": [],
+                "parks": [],
+                "transportation": []
+            }
         
-        # Wait for all to complete and collect results
-        neighborhood_result = neighborhood_future.result()
-        enrichment_data["neighborhood"] = neighborhood_result.get("neighborhood")
+        try:
+            quality_result = quality_future.result(timeout=30)
+        except Exception as e:
+            print(f"[WEB SEARCH 2] Timeout/Error: {e}")
+            quality_result = {
+                "crime_info": None,
+                "quality_of_life": None,
+                "safety_info": None,
+                "neighborhood": None
+            }
         
-        # Collect amenity results
-        for amenity_type, future in amenity_futures.items():
-            result = future.result()
-            enrichment_data["key_amenities"][amenity_type] = result.get(amenity_type, [])
+        # Store amenities
+        enrichment_data["key_amenities"] = amenities_result
+        
+        # Store neighborhood quality information
+        enrichment_data["neighborhood_quality"] = {
+            "crime_info": quality_result.get("crime_info"),
+            "quality_of_life": quality_result.get("quality_of_life"),
+            "safety_info": quality_result.get("safety_info")
+        }
+        
+        # Store neighborhood name if found
+        if quality_result.get("neighborhood"):
+            enrichment_data["neighborhood"] = quality_result.get("neighborhood")
+    
+    print(f"[DEBUG] Enrichment: Completed 2 web searches")
+    print(f"[DEBUG] Enrichment: Found {len(amenities_result.get('schools', []))} schools, {len(amenities_result.get('supermarkets', []))} supermarkets, {len(amenities_result.get('parks', []))} parks, {len(amenities_result.get('transportation', []))} transportation options")
     
     return enrichment_data
 

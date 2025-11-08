@@ -1,4 +1,4 @@
-# Property Listing AI System - Iteration 1
+# Property List Mate - Iteration 1
 
 # LangChain & LangGraph
 langchain>=0.1.0
@@ -15,4 +15,7 @@ gradio>=4.0.0
 # Testing
 pytest>=7.4.0
 pytest-cov>=4.1.0
+
+# Observability & Tracing
+opik>=0.1.0
 

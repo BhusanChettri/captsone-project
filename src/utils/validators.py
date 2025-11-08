@@ -325,17 +325,24 @@ def validate_rental_fields(
 def validate_sale_fields(
     listing_type: Optional[str],
     hoa_fees: Optional[float],
-    property_taxes: Optional[float]
+    property_taxes: Optional[float],
+    council_tax: Optional[float] = None,
+    rates: Optional[float] = None,
+    strata_fees: Optional[float] = None
 ) -> List[str]:
     """
-    Validate sale-specific fields.
+    Validate sale-specific fields (region-dependent).
     
     These fields should only be provided for sale listings.
+    Different regions have different fields.
     
     Args:
         listing_type: Listing type
-        hoa_fees: HOA fees amount
-        property_taxes: Property taxes amount
+        hoa_fees: HOA fees / Condo fees / Service charge (US/CA/UK)
+        property_taxes: Property taxes (US/CA)
+        council_tax: Council tax (UK)
+        rates: Council rates (Australia)
+        strata_fees: Strata fees / Body corporate (Australia/Canada)
         
     Returns:
         List of error messages (empty if all valid)
@@ -346,15 +353,30 @@ def validate_sale_fields(
     if listing_type and listing_type.lower().strip() != "sale":
         return errors  # Not a sale, skip sale-specific validation
     
-    # Validate hoa_fees
+    # Validate hoa_fees (US/CA/UK)
     hoa_error = validate_non_negative_number(hoa_fees, "hoa_fees")
     if hoa_error:
         errors.append(hoa_error)
     
-    # Validate property_taxes
+    # Validate property_taxes (US/CA)
     taxes_error = validate_non_negative_number(property_taxes, "property_taxes")
     if taxes_error:
         errors.append(taxes_error)
+    
+    # Validate council_tax (UK)
+    council_tax_error = validate_non_negative_number(council_tax, "council_tax")
+    if council_tax_error:
+        errors.append(council_tax_error)
+    
+    # Validate rates (Australia)
+    rates_error = validate_non_negative_number(rates, "rates")
+    if rates_error:
+        errors.append(rates_error)
+    
+    # Validate strata_fees (Australia/Canada)
+    strata_error = validate_non_negative_number(strata_fees, "strata_fees")
+    if strata_error:
+        errors.append(strata_error)
     
     return errors
 
@@ -363,16 +385,107 @@ def validate_sale_fields(
 # Comprehensive Input Validation
 # ============================================================================
 
+def validate_property_type(property_type: Optional[str]) -> Optional[str]:
+    """
+    Validate property type is valid.
+    
+    Args:
+        property_type: Property type to validate
+        
+    Returns:
+        Error message if validation fails, None otherwise
+    """
+    if property_type is None:
+        return "property_type is required"
+    
+    if not isinstance(property_type, str):
+        return "property_type must be a string"
+    
+    property_type_stripped = property_type.strip()
+    
+    valid_property_types = ["Apartment", "House", "Condo", "Townhouse", "Studio", "Loft"]
+    if property_type_stripped not in valid_property_types:
+        return f"property_type must be one of {valid_property_types}, got '{property_type}'"
+    
+    return None
+
+
+def validate_bedrooms(bedrooms: Optional[int]) -> Optional[str]:
+    """
+    Validate bedrooms is a valid non-negative integer.
+    
+    Args:
+        bedrooms: Number of bedrooms to validate
+        
+    Returns:
+        Error message if validation fails, None otherwise
+    """
+    if bedrooms is None:
+        return "bedrooms is required"
+    
+    if not isinstance(bedrooms, (int, float)):
+        return "bedrooms must be a number"
+    
+    bedrooms_int = int(bedrooms)
+    if bedrooms_int < 0:
+        return "bedrooms cannot be negative"
+    
+    return None
+
+
+def validate_bathrooms(bathrooms: Optional[float]) -> Optional[str]:
+    """
+    Validate bathrooms is a valid non-negative number (can be decimal).
+    
+    Args:
+        bathrooms: Number of bathrooms to validate
+        
+    Returns:
+        Error message if validation fails, None otherwise
+    """
+    if bathrooms is None:
+        return "bathrooms is required"
+    
+    if not isinstance(bathrooms, (int, float)):
+        return "bathrooms must be a number"
+    
+    if bathrooms < 0:
+        return "bathrooms cannot be negative"
+    
+    return None
+
+
+def validate_sqft(sqft: Optional[int]) -> Optional[str]:
+    """
+    Validate square footage is a valid positive integer.
+    
+    Args:
+        sqft: Square footage to validate
+        
+    Returns:
+        Error message if validation fails, None otherwise
+    """
+    if sqft is None:
+        return "sqft is required"
+    
+    if not isinstance(sqft, (int, float)):
+        return "sqft must be a number"
+    
+    sqft_int = int(sqft)
+    if sqft_int <= 0:
+        return "sqft must be greater than 0"
+    
+    return None
+
+
 def validate_input_fields(
     address: Optional[str],
     listing_type: Optional[str],
-    price: Optional[float],
-    notes: Optional[str],
-    billing_cycle: Optional[str] = None,
-    lease_term: Optional[str] = None,
-    security_deposit: Optional[float] = None,
-    hoa_fees: Optional[float] = None,
-    property_taxes: Optional[float] = None,
+    property_type: Optional[str],
+    bedrooms: Optional[int],
+    bathrooms: Optional[float],
+    sqft: Optional[int],
+    notes: Optional[str] = None,
 ) -> List[str]:
     """
     Perform comprehensive validation of all input fields.
@@ -383,13 +496,11 @@ def validate_input_fields(
     Args:
         address: Property address (required)
         listing_type: Listing type - "sale" or "rent" (required)
-        price: Asking price (required)
+        property_type: Property type - "Apartment", "House", "Condo", "Townhouse", "Studio", "Loft" (required)
+        bedrooms: Number of bedrooms (required)
+        bathrooms: Number of bathrooms, can be decimal (required)
+        sqft: Square footage (required)
         notes: Property notes (optional)
-        billing_cycle: Billing cycle for rentals (optional)
-        lease_term: Lease term for rentals (optional)
-        security_deposit: Security deposit for rentals (optional)
-        hoa_fees: HOA fees for sales (optional)
-        property_taxes: Property taxes for sales (optional)
         
     Returns:
         List of error messages (empty if all validations pass)
@@ -405,23 +516,26 @@ def validate_input_fields(
     if listing_type_error:
         errors.append(listing_type_error)
     
-    # Validate price (required field)
-    price_error = validate_price(price, "price", required=True)
-    if price_error:
-        errors.append(price_error)
+    property_type_error = validate_property_type(property_type)
+    if property_type_error:
+        errors.append(property_type_error)
     
+    bedrooms_error = validate_bedrooms(bedrooms)
+    if bedrooms_error:
+        errors.append(bedrooms_error)
+    
+    bathrooms_error = validate_bathrooms(bathrooms)
+    if bathrooms_error:
+        errors.append(bathrooms_error)
+    
+    sqft_error = validate_sqft(sqft)
+    if sqft_error:
+        errors.append(sqft_error)
+    
+    # Validate optional fields
     notes_error = validate_notes(notes)
     if notes_error:
         errors.append(notes_error)
-    
-    # Validate type-specific fields
-    rental_errors = validate_rental_fields(
-        listing_type, billing_cycle, lease_term, security_deposit
-    )
-    errors.extend(rental_errors)
-    
-    sale_errors = validate_sale_fields(listing_type, hoa_fees, property_taxes)
-    errors.extend(sale_errors)
     
     return errors
 

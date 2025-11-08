@@ -18,33 +18,45 @@ class PropertyListingInput:
     Required fields:
     - address: Property address (e.g., "123 Main St, New York, NY 10001")
     - listing_type: Either "sale" or "rent"
-    - price: Asking price in USD (e.g., 500000.0 or 2500.0)
     - notes: Free-text description with key features (beds, baths, sqft, amenities)
     
-    Optional fields for rental listings:
+    Optional fields:
+    - price: Asking price (currency depends on region) - can be added later when posting
+    - region: Region code (US, CA, UK, AU). Defaults to US if not specified.
+    
+    Optional fields for rental listings (region-dependent):
     - billing_cycle: How often rent is paid (e.g., "monthly", "weekly")
     - lease_term: Lease duration (e.g., "12 months", "6 months")
-    - security_deposit: Security deposit amount in USD
+    - security_deposit: Security deposit / bond amount (currency depends on region)
     
-    Optional fields for sale listings:
-    - hoa_fees: HOA fees in USD (e.g., 200.0)
-    - property_taxes: Annual property taxes in USD (e.g., 5000.0)
+    Optional fields for sale listings (region-dependent):
+    - hoa_fees: HOA fees / Condo fees / Service charge (US/CA/UK)
+    - property_taxes: Property taxes (US/CA)
+    - council_tax: Council tax (UK)
+    - rates: Council rates (Australia)
+    - strata_fees: Strata fees / Body corporate (Australia/Canada)
     """
     
-    # Required fields
+    # Required fields (must come before optional fields in dataclass)
     address: str
     listing_type: Literal["sale", "rent"]
-    price: float
     notes: str
+    
+    # Optional fields (must come after required fields)
+    price: Optional[float] = None  # Optional - can be added later when posting
+    region: Optional[str] = None
     
     # Optional fields for rentals
     billing_cycle: Optional[str] = None
     lease_term: Optional[str] = None
     security_deposit: Optional[float] = None
     
-    # Optional fields for sales
+    # Optional fields for sales (region-dependent)
     hoa_fees: Optional[float] = None
     property_taxes: Optional[float] = None
+    council_tax: Optional[float] = None  # UK
+    rates: Optional[float] = None  # Australia
+    strata_fees: Optional[float] = None  # Australia/Canada
     
     def __post_init__(self):
         """
@@ -62,9 +74,9 @@ class PropertyListingInput:
         if self.listing_type not in ["sale", "rent"]:
             raise ValueError(f"listing_type must be 'sale' or 'rent', got '{self.listing_type}'")
         
-        # Validate price is positive
-        if self.price <= 0:
-            raise ValueError(f"price must be positive, got {self.price}")
+        # Validate price is positive if provided (price is optional)
+        if self.price is not None and self.price <= 0:
+            raise ValueError(f"price must be positive if provided, got {self.price}")
         
         # Validate optional numeric fields are non-negative if provided
         if self.security_deposit is not None and self.security_deposit < 0:
