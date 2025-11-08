@@ -12,6 +12,7 @@ It tracks:
 """
 
 import time
+import os
 from typing import Optional, Dict, Any, Callable, Tuple
 from functools import wraps
 import uuid
@@ -22,21 +23,158 @@ _tracer: Optional[Any] = None
 _trace_metadata: Dict[str, Any] = {}
 
 
-def initialize_tracer(project_name: str = "property-listing-system") -> Any:
+def get_opik_config() -> Tuple[bool, Optional[str]]:
+    """
+    Get Opik configuration from environment variables.
+    
+    Environment variables:
+    - OPIK_USE_LOCAL: Set to "true" or "1" to use local mode, "false" or "0" for cloud (default: cloud)
+    - OPIK_URL: URL for local Opik server (only used when OPIK_USE_LOCAL=true, default: http://localhost:5173/api/)
+    - COMET_API_KEY: Required for cloud mode (Opik will prompt if not set)
+    
+    Returns:
+        Tuple of (use_local: bool, url: Optional[str])
+        - use_local: True for local mode, False for cloud mode
+        - url: Local Opik URL if use_local=True, None otherwise
+        
+    Example:
+        To use local mode, set in .env:
+            OPIK_USE_LOCAL=true
+            OPIK_URL=http://localhost:5173/api/
+        
+        To use cloud mode (default), set in .env:
+            OPIK_USE_LOCAL=false
+            COMET_API_KEY=your-api-key-here
+    """
+    # Load .env file if available
+    try:
+        from utils.env_loader import load_iteration1_env
+        load_iteration1_env()
+    except ImportError:
+        pass  # env_loader not available, continue with system env vars
+    
+    # Get OPIK_USE_LOCAL from environment (default to False/cloud mode)
+    use_local_str = os.getenv("OPIK_USE_LOCAL", "false").strip().lower()
+    use_local = use_local_str in ("true", "1", "yes", "on")
+    
+    # Get OPIK_URL for local mode (only used if use_local=True)
+    url = None
+    if use_local:
+        url = os.getenv("OPIK_URL", "http://localhost:5173/api/").strip()
+        if not url:
+            url = "http://localhost:5173/api/"
+    
+    return use_local, url
+
+
+def _normalize_local_opik_url(url: Optional[str]) -> str:
+    """
+    Ensure the provided URL points to the Opik REST API root.
+    
+    Opik's API expects the base URL to include the `/api/` prefix.
+    Users commonly provide `http://localhost:5173`, which results in 404s
+    when the SDK attempts to call `/v1/...` endpoints. This helper makes sure
+    the suffix is present and that the URL always ends with a trailing slash.
+    """
+    default_base = "http://localhost:5173/api/"
+    if not url:
+        return default_base
+    
+    normalized = url.strip()
+    if not normalized:
+        return default_base
+    
+    # Guarantee trailing slash
+    if not normalized.endswith("/"):
+        normalized += "/"
+    
+    # Ensure `/api/` suffix is present (before trailing slash)
+    if not normalized.rstrip("/").endswith("/api"):
+        normalized = normalized.rstrip("/") + "/api/"
+    else:
+        # Already ends with /api or /api/, normalize to /api/
+        normalized = normalized.rstrip("/") + "/"
+    
+    return normalized
+
+
+def initialize_tracer(
+    graph: Any,
+    project_name: str = "property-listing-system",
+    use_local: bool = True,
+    url: Optional[str] = None
+) -> Any:
     """
     Initialize Opik tracer for LangGraph workflow.
     
     Args:
+        graph: The compiled LangGraph workflow (use graph.get_graph(xray=True))
         project_name: Name of the project for Opik dashboard
+        use_local: Whether to use local Opik server (default: True)
+                   Set to False to use Opik Cloud (requires API key)
+        url: URL of the local Opik instance (optional, defaults to http://localhost:5173/api/)
+             Only used when use_local=True
+             Make sure you are running the Opik local server (see https://www.comet.com/docs/opik/)
+             so that the API is reachable at the URL provided here.
         
     Returns:
         OpikTracer instance
     """
     try:
+        # For local mode, just set the environment variable - no need to call configure()
+        # OpikTracer will automatically pick up OPIK_URL_OVERRIDE
+        if use_local:
+            normalized_url = _normalize_local_opik_url(url)
+            os.environ["OPIK_URL_OVERRIDE"] = normalized_url
+            print(f"[TRACE] Opik configured for LOCAL mode: api_root={normalized_url}")
+            print(f"[TRACE] ⚠️  Start the Opik local server (see Opik docs) so the API is reachable.")
+            print(f"[TRACE]    Expected health check: {normalized_url}is-alive/ping")
+            print(f"[TRACE]    UI will be served at {normalized_url.replace('/api/', '/')}")
+            url = normalized_url
+        
+        # Import after setting environment variables
+        import opik
         from opik.integrations.langchain import OpikTracer
-        return OpikTracer(project_name=project_name)
+        
+        # Only configure for cloud mode (local mode uses environment variable)
+        if not use_local:
+            # Cloud mode - remove local URL override if it exists
+            if "OPIK_URL_OVERRIDE" in os.environ:
+                del os.environ["OPIK_URL_OVERRIDE"]
+            
+            # Configure Opik for cloud mode
+            # Opik will use COMET_API_KEY from environment if available
+            # Otherwise, it will prompt for API key or use automatic approvals
+            try:
+                opik.configure(use_local=False, automatic_approvals=True)
+                api_key = os.environ.get("COMET_API_KEY", "Not set (will prompt if needed)")
+                print(f"[TRACE] Opik configured for CLOUD mode")
+                print(f"[TRACE] COMET_API_KEY: {'Set' if api_key != 'Not set (will prompt if needed)' else 'Not set - Opik will prompt for API key'}")
+                print(f"[TRACE] View traces at: https://www.comet.com/opik")
+            except Exception as e:
+                print(f"[TRACE] Warning: Could not configure Opik cloud mode: {e}")
+                print(f"[TRACE] Make sure COMET_API_KEY is set in your environment")
+        
+        # Initialize OpikTracer with the graph
+        # Note: graph is already the result of compiled_workflow.get_graph(xray=True)
+        # Opik will handle connection errors gracefully - traces will be queued
+        tracer = OpikTracer(
+            graph=graph,
+            project_name=project_name
+        )
+        
+        # Note: Connection errors are expected if proxy server isn't running
+        # Opik will retry sending traces when the server becomes available
+        return tracer
+
     except ImportError:
         print("[WARNING] Opik not installed. Tracing will be disabled.")
+        return None
+    except Exception as e:
+        print(f"[WARNING] Failed to initialize Opik tracer: {e}")
+        print("[WARNING] Tracing will be disabled.")
+        print("[WARNING] Note: Connection errors are normal if Opik proxy server isn't running.")
+        print("[WARNING] Ensure the Opik local server is running and reachable at the configured URL.")
         return None
 
 
@@ -314,4 +452,3 @@ def trace_prompt_building(
             metrics["error"] = str(e)
             metrics["success"] = False
             raise
-

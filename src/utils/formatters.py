@@ -209,10 +209,10 @@ def format_listing(
             
             parts.append(f"{user_price_label} {currency_symbol}{seller_price:,.2f} ({currency})")
         
-        # Show predicted price if available (future feature - price prediction)
+        # Show predicted price if available
         if predicted_price is not None:
             if listing_type and listing_type.lower() == "rent":
-                predicted_price_label = "Predicted Rental:"
+                predicted_price_label = "Predicted Monthly Rental:"
             else:
                 predicted_price_label = "Predicted Price:"
             

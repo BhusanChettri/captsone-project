@@ -11,14 +11,24 @@ It handles:
 
 import sys
 import time
+import os
 from pathlib import Path
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
+# Load environment variables from .env file before importing other modules
+from utils.env_loader import load_iteration1_env
+load_iteration1_env()
+
 from core import create_workflow, PropertyListingState
 from models import PropertyListingInput
-from utils.tracing import clear_trace_metadata, set_trace_metadata, get_trace_metadata
+from utils.tracing import (
+    clear_trace_metadata, 
+    set_trace_metadata, 
+    get_trace_metadata,
+    get_opik_config
+)
 
 
 def process_listing_request(
@@ -83,7 +93,20 @@ def process_listing_request(
         set_trace_metadata("bathrooms", bathrooms)
         set_trace_metadata("sqft", sqft)
         
-        workflow, tracer = create_workflow(enable_tracing=True)
+        # Get Opik configuration from environment variables
+        # To switch between local and cloud mode, set in .env file:
+        #   - OPIK_USE_LOCAL=true   (for local mode - requires opik proxy server)
+        #   - OPIK_USE_LOCAL=false  (for cloud mode - default, requires COMET_API_KEY)
+        #   - OPIK_URL=http://localhost:5173/api/  (optional, for local mode)
+        use_local_opik, opik_url = get_opik_config()
+        
+        workflow, tracer = create_workflow(
+            enable_tracing=True,
+            use_local_opik=use_local_opik,
+            opik_url=opik_url
+        )
+
+        
         print("✓ Workflow initialized")
         if tracer:
             print("✓ Tracing enabled")
