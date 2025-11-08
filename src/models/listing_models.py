@@ -18,10 +18,10 @@ class PropertyListingInput:
     Required fields:
     - address: Property address (e.g., "123 Main St, New York, NY 10001")
     - listing_type: Either "sale" or "rent"
-    - price: Asking price (currency depends on region)
     - notes: Free-text description with key features (beds, baths, sqft, amenities)
     
     Optional fields:
+    - price: Asking price (currency depends on region) - can be added later when posting
     - region: Region code (US, CA, UK, AU). Defaults to US if not specified.
     
     Optional fields for rental listings (region-dependent):
@@ -37,11 +37,13 @@ class PropertyListingInput:
     - strata_fees: Strata fees / Body corporate (Australia/Canada)
     """
     
-    # Required fields
+    # Required fields (must come before optional fields in dataclass)
     address: str
     listing_type: Literal["sale", "rent"]
-    price: float
     notes: str
+    
+    # Optional fields (must come after required fields)
+    price: Optional[float] = None  # Optional - can be added later when posting
     region: Optional[str] = None
     
     # Optional fields for rentals
@@ -72,9 +74,9 @@ class PropertyListingInput:
         if self.listing_type not in ["sale", "rent"]:
             raise ValueError(f"listing_type must be 'sale' or 'rent', got '{self.listing_type}'")
         
-        # Validate price is positive
-        if self.price <= 0:
-            raise ValueError(f"price must be positive, got {self.price}")
+        # Validate price is positive if provided (price is optional)
+        if self.price is not None and self.price <= 0:
+            raise ValueError(f"price must be positive if provided, got {self.price}")
         
         # Validate optional numeric fields are non-negative if provided
         if self.security_deposit is not None and self.security_deposit < 0:

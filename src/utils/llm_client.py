@@ -12,7 +12,7 @@ Observability:
 import json
 from typing import Optional, Dict, Any, Tuple
 from langchain_core.output_parsers import StrOutputParser
-from utils.tracing import trace_llm_call, set_trace_metadata
+from .tracing import trace_llm_call, set_trace_metadata
 
 
 def initialize_llm(model_name: str = "gpt-4o-mini", model_provider: str = "openai", **kwargs):
@@ -173,9 +173,14 @@ def parse_json_response(response: str) -> Dict[str, Any]:
     if missing_keys:
         raise ValueError(f"Missing required keys in LLM response: {missing_keys}")
     
-    # Validate that values are strings and not empty
+    # Validate that values are strings
+    # Note: price_block can be empty if price was not provided
     for key in required_keys:
-        if not isinstance(parsed[key], str) or not parsed[key].strip():
+        if not isinstance(parsed[key], str):
+            raise ValueError(f"Invalid value for '{key}': must be a string")
+        # Only check for non-empty for title and description
+        # price_block can be empty if price was not provided
+        if key != "price_block" and not parsed[key].strip():
             raise ValueError(f"Invalid value for '{key}': must be non-empty string")
     
     return parsed

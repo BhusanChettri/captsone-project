@@ -319,12 +319,13 @@ PRICE_KEYWORDS_IN_DESCRIPTION = [
 ]
 
 
-def validate_output_structure(llm_parsed: Dict[str, Any]) -> Optional[str]:
+def validate_output_structure(llm_parsed: Dict[str, Any], original_price: Optional[float] = None) -> Optional[str]:
     """
     Validate that LLM output has the required structure.
     
     Args:
         llm_parsed: Parsed JSON dictionary from LLM
+        original_price: Original price from input (optional). If None, price_block can be empty.
         
     Returns:
         Error message if structure is invalid, None otherwise
@@ -359,8 +360,10 @@ def validate_output_structure(llm_parsed: Dict[str, Any]) -> Optional[str]:
     if not llm_parsed.get("description", "").strip():
         return "LLM output 'description' cannot be empty"
     
-    if not llm_parsed.get("price_block", "").strip():
-        return "LLM output 'price_block' cannot be empty"
+    # price_block can be empty if original_price was not provided
+    if original_price is not None and not llm_parsed.get("price_block", "").strip():
+        return "LLM output 'price_block' cannot be empty when price is provided"
+    # If original_price is None, empty price_block is acceptable
     
     return None
 
@@ -607,8 +610,8 @@ def check_output_guardrails(
         errors.append("Output guardrail: No LLM output to validate")
         return errors
     
-    # 1. Validate structure
-    structure_error = validate_output_structure(llm_parsed)
+    # 1. Validate structure (pass original_price to allow empty price_block when price not provided)
+    structure_error = validate_output_structure(llm_parsed, original_price=original_price)
     if structure_error:
         errors.append(f"Output structure: {structure_error}")
         # If structure is invalid, skip other checks

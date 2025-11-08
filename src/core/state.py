@@ -71,6 +71,18 @@ class PropertyListingState(TypedDict, total=False):
     listing_type: Literal["sale", "rent"]
     """Listing type: "sale" or "rent". Required field."""
     
+    property_type: str
+    """Type of property: "Apartment", "House", "Condo", "Townhouse", "Studio", "Loft". Required field."""
+    
+    bedrooms: Optional[int]
+    """Number of bedrooms. Required field."""
+    
+    bathrooms: Optional[float]
+    """Number of bathrooms (can be decimal like 1.5). Required field."""
+    
+    sqft: Optional[int]
+    """Square footage / total living area. Required field."""
+    
     region: Optional[str]
     """Region code (US, CA, UK, AU). Optional, defaults to US if not specified."""
     
@@ -78,11 +90,8 @@ class PropertyListingState(TypedDict, total=False):
     # Optional Input Fields
     # ========================================================================
     
-    price: Optional[float]
-    """Asking price in USD. Optional but typically provided."""
-    
     notes: Optional[str]
-    """Free-text description with key features (beds, baths, sqft, amenities)."""
+    """Free-text description with key features, amenities, condition, etc. Optional field."""
     
     # Rental-specific optional fields
     billing_cycle: Optional[str]
@@ -138,9 +147,19 @@ class PropertyListingState(TypedDict, total=False):
     Dictionary of key amenities organized by category.
     Structure: {
         "schools": ["School Name 1", "School Name 2"],
+        "supermarkets": ["Supermarket Name 1"],
         "parks": ["Park Name 1"],
-        "shopping": ["Shopping Center 1"],
         "transportation": ["Subway: Line 1, Line 2"]
+    }
+    """
+    
+    neighborhood_quality: Optional[Dict[str, Optional[str]]]
+    """
+    Neighborhood quality information from web search.
+    Structure: {
+        "crime_info": Optional[str],  # Crime rates/safety information
+        "quality_of_life": Optional[str],  # Quality of life indicators
+        "safety_info": Optional[str]  # Safety information
     }
     """
     

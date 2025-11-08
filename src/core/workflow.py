@@ -33,7 +33,14 @@ from core.nodes import (
     output_guardrail_node,
     format_output_node,
 )
-from utils.tracing import initialize_tracer, set_tracer, get_tracer
+try:
+    from utils.tracing import initialize_tracer, set_tracer, get_tracer
+except ImportError:
+    # Fallback for relative import
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).parent.parent))
+    from utils.tracing import initialize_tracer, set_tracer, get_tracer
 
 
 def should_continue_workflow(state: PropertyListingState) -> str:

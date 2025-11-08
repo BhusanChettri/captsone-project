@@ -7,13 +7,16 @@ title, description, and price_block fields.
 """
 
 from typing import Optional, Dict, Any, List
-from utils.region_config import get_region_config, get_currency_symbol, FieldType
+from .region_config import get_region_config, get_currency_symbol, FieldType
 
 
 def build_listing_generation_prompt(
     address: str,
     listing_type: str,
-    price: float,
+    property_type: str,
+    bedrooms: int,
+    bathrooms: float,
+    sqft: int,
     notes: Optional[str] = None,
     normalized_address: Optional[str] = None,
     normalized_notes: Optional[str] = None,
@@ -21,15 +24,8 @@ def build_listing_generation_prompt(
     neighborhood: Optional[str] = None,
     landmarks: Optional[List[str]] = None,
     key_amenities: Optional[Dict[str, List[str]]] = None,
+    neighborhood_quality: Optional[Dict[str, Optional[str]]] = None,
     region: Optional[str] = "US",
-    billing_cycle: Optional[str] = None,
-    lease_term: Optional[str] = None,
-    security_deposit: Optional[float] = None,
-    hoa_fees: Optional[float] = None,
-    property_taxes: Optional[float] = None,
-    council_tax: Optional[float] = None,
-    rates: Optional[float] = None,
-    strata_fees: Optional[float] = None,
 ) -> str:
     """
     Build a comprehensive prompt for LLM to generate property listing content.
@@ -40,19 +36,19 @@ def build_listing_generation_prompt(
     Args:
         address: Property address
         listing_type: "sale" or "rent"
-        price: Asking price in USD
-        notes: Free-text notes with key features
+        property_type: Type of property (Apartment, House, Condo, Townhouse, Studio, Loft)
+        bedrooms: Number of bedrooms
+        bathrooms: Number of bathrooms (can be decimal like 1.5)
+        sqft: Square footage / total living area
+        notes: Free-text notes with key features, amenities, condition, etc. (optional)
         normalized_address: Cleaned/normalized address
         normalized_notes: Cleaned/normalized notes
         zip_code: ZIP code from enrichment
         neighborhood: Neighborhood name from enrichment
         landmarks: List of nearby landmarks
-        key_amenities: Dictionary of amenities by category
-        billing_cycle: Rental billing cycle (rental only)
-        lease_term: Lease duration (rental only)
-        security_deposit: Security deposit amount (rental only)
-        hoa_fees: HOA fees (sale only)
-        property_taxes: Annual property taxes (sale only)
+        key_amenities: Dictionary of amenities by category (schools, supermarkets, parks, transportation)
+        neighborhood_quality: Dictionary with crime_info, quality_of_life, safety_info
+        region: Region code (US, CA, UK, AU)
         
     Returns:
         Complete prompt string for LLM
@@ -74,44 +70,20 @@ def build_listing_generation_prompt(
     prompt_parts.append("You are a professional real estate listing writer. Generate a property listing based on the following information.")
     prompt_parts.append("")
     
+    # Format bathrooms: show as integer if whole number, otherwise show decimal
+    bathrooms_display = int(bathrooms) if bathrooms == int(bathrooms) else bathrooms
+    
     # Property Information Section
     prompt_parts.append("=== PROPERTY INFORMATION ===")
     prompt_parts.append(f"Address: {final_address}")
     prompt_parts.append(f"Listing Type: {listing_type.upper()}")
+    prompt_parts.append(f"Property Type: {property_type}")
+    prompt_parts.append(f"Bedrooms: {bedrooms}")
+    prompt_parts.append(f"Bathrooms: {bathrooms_display}")
+    prompt_parts.append(f"Square Footage: {sqft:,} sqft")
     prompt_parts.append(f"Region: {config['region_name']}")
-    prompt_parts.append(f"Asking Price: {currency_symbol}{price:,.2f} ({currency})")
-    
-    if listing_type == "rent":
-        if billing_cycle:
-            prompt_parts.append(f"Billing Cycle: {billing_cycle}")
-        if lease_term:
-            prompt_parts.append(f"Lease Term: {lease_term}")
-        if security_deposit is not None:
-            # Get security deposit label from region config
-            security_label = "Security Deposit"
-            if FieldType.SECURITY_DEPOSIT in config["fields"]:
-                security_label = config["fields"][FieldType.SECURITY_DEPOSIT]["label"]
-            prompt_parts.append(f"{security_label}: {currency_symbol}{security_deposit:,.2f}")
-        # UK: Council tax can be for rentals
-        if region == "UK" and council_tax is not None:
-            prompt_parts.append(f"Council Tax: {currency_symbol}{council_tax:,.2f}/year")
-    elif listing_type == "sale":
-        # Region-specific sale fields
-        if region in ["US", "CA", "UK"] and hoa_fees is not None:
-            hoa_label = config["fields"].get(FieldType.HOA_FEES, {}).get("label", "HOA Fees")
-            hoa_unit = config["fields"].get(FieldType.HOA_FEES, {}).get("unit", "")
-            prompt_parts.append(f"{hoa_label}: {currency_symbol}{hoa_fees:,.2f}{'/' + hoa_unit.split('/')[-1] if '/' in hoa_unit else ''}")
-        if region in ["US", "CA"] and property_taxes is not None:
-            prompt_parts.append(f"Property Taxes: {currency_symbol}{property_taxes:,.2f}/year")
-        if region == "UK" and council_tax is not None:
-            prompt_parts.append(f"Council Tax: {currency_symbol}{council_tax:,.2f}/year")
-        if region == "AU" and rates is not None:
-            prompt_parts.append(f"Council Rates: {currency_symbol}{rates:,.2f}/year")
-        if region in ["AU", "CA"] and strata_fees is not None:
-            strata_label = config["fields"].get(FieldType.STRATA_FEES, {}).get("label", "Strata Fees")
-            strata_unit = config["fields"].get(FieldType.STRATA_FEES, {}).get("unit", "")
-            prompt_parts.append(f"{strata_label}: {currency_symbol}{strata_fees:,.2f}{'/' + strata_unit.split('/')[-1] if '/' in strata_unit else ''}")
-    
+    prompt_parts.append("")
+    prompt_parts.append("IMPORTANT: Use the city/area from the address (e.g., 'New York, NY', 'Manhattan') for location references if neighborhood data is invalid or unclear.")
     prompt_parts.append("")
     
     # Property Features Section
@@ -121,12 +93,29 @@ def build_listing_generation_prompt(
         prompt_parts.append("")
     
     # Location & Neighborhood Section
+    # Filter out invalid/garbage neighborhood names
     location_info = []
     print(f"[DEBUG] Prompt Builder: Checking location data - zip_code: {zip_code} (truthy: {bool(zip_code)}), neighborhood: {neighborhood} (truthy: {bool(neighborhood)})")
+    
+    # Invalid words that should never be used as neighborhood names
+    INVALID_NEIGHBORHOOD_WORDS = [
+        "what", "where", "when", "who", "why", "how", "which", "this", "that",
+        "area", "neighborhood", "location", "place"
+    ]
+    
     if zip_code:
         location_info.append(f"ZIP Code: {zip_code}")
+    
+    # Only include neighborhood if it's valid (not a garbage word)
     if neighborhood:
-        location_info.append(f"Neighborhood: {neighborhood}")
+        neighborhood_lower = neighborhood.lower().strip()
+        # Check if neighborhood is invalid
+        if (neighborhood_lower not in INVALID_NEIGHBORHOOD_WORDS and 
+            not any(word in neighborhood_lower for word in INVALID_NEIGHBORHOOD_WORDS) and
+            len(neighborhood.strip()) > 3):
+            location_info.append(f"Neighborhood: {neighborhood}")
+        else:
+            print(f"[DEBUG] Prompt Builder: ⚠️ Filtered out invalid neighborhood: '{neighborhood}'")
     
     if location_info:
         prompt_parts.append("=== LOCATION & NEIGHBORHOOD ===")
@@ -148,6 +137,12 @@ def build_listing_generation_prompt(
         print(f"[DEBUG] Prompt Builder: ❌ Skipped NEARBY LANDMARKS section (no data or empty list)")
     
     # Key Amenities Section
+    # Filter out invalid/garbage amenity names
+    INVALID_AMENITY_WORDS = [
+        "what", "where", "when", "who", "why", "how", "which", "this", "that",
+        "overview", "website", "click", "here", "more", "details", "page"
+    ]
+    
     print(f"[DEBUG] Prompt Builder: Checking key_amenities - value: {key_amenities}, type: {type(key_amenities)}, truthy: {bool(key_amenities)}")
     if key_amenities:
         amenities_added = []
@@ -155,18 +150,51 @@ def build_listing_generation_prompt(
         for category, items in key_amenities.items():
             print(f"[DEBUG] Prompt Builder:   - Category '{category}': {items} (length: {len(items) if items else 0}, truthy: {bool(items)})")
             if items:
-                category_name = category.capitalize()
-                prompt_parts.append(f"{category_name}:")
+                # Filter out invalid amenity names
+                valid_items = []
                 for item in items:
-                    prompt_parts.append(f"  - {item}")
-                amenities_added.append(f"{category}({len(items)} items)")
+                    if isinstance(item, str):
+                        item_lower = item.lower().strip()
+                        # Skip invalid items
+                        if (item_lower not in INVALID_AMENITY_WORDS and
+                            not any(word in item_lower for word in INVALID_AMENITY_WORDS) and
+                            len(item.strip()) > 2):
+                            valid_items.append(item)
+                
+                if valid_items:
+                    category_name = category.capitalize()
+                    prompt_parts.append(f"{category_name}:")
+                    for item in valid_items:
+                        prompt_parts.append(f"  - {item}")
+                    amenities_added.append(f"{category}({len(valid_items)} items)")
         prompt_parts.append("")
         if amenities_added:
             print(f"[DEBUG] Prompt Builder: ✅ Added KEY AMENITIES section with: {', '.join(amenities_added)}")
         else:
-            print(f"[DEBUG] Prompt Builder: ⚠️ Added KEY AMENITIES section header but no items (all categories empty)")
+            print(f"[DEBUG] Prompt Builder: ⚠️ Added KEY AMENITIES section header but no items (all categories empty or filtered)")
     else:
         print(f"[DEBUG] Prompt Builder: ❌ Skipped KEY AMENITIES section (no data or empty dict)")
+    
+    # Neighborhood Quality Section (from WEB SEARCH 2)
+    print(f"[DEBUG] Prompt Builder: Checking neighborhood_quality - value: {neighborhood_quality}, type: {type(neighborhood_quality)}, truthy: {bool(neighborhood_quality)}")
+    if neighborhood_quality:
+        quality_info = []
+        if neighborhood_quality.get("crime_info"):
+            quality_info.append(f"Crime & Safety: {neighborhood_quality['crime_info']}")
+        if neighborhood_quality.get("quality_of_life"):
+            quality_info.append(f"Quality of Life: {neighborhood_quality['quality_of_life']}")
+        if neighborhood_quality.get("safety_info"):
+            quality_info.append(f"Safety Information: {neighborhood_quality['safety_info']}")
+        
+        if quality_info:
+            prompt_parts.append("=== NEIGHBORHOOD QUALITY ===")
+            prompt_parts.append("\n".join(quality_info))
+            prompt_parts.append("")
+            print(f"[DEBUG] Prompt Builder: ✅ Added NEIGHBORHOOD QUALITY section with {len(quality_info)} items")
+        else:
+            print(f"[DEBUG] Prompt Builder: ⚠️ neighborhood_quality provided but all fields empty")
+    else:
+        print(f"[DEBUG] Prompt Builder: ❌ Skipped NEIGHBORHOOD QUALITY section (no data)")
     
     # Instructions Section
     prompt_parts.append("=== INSTRUCTIONS ===")
@@ -174,22 +202,31 @@ def build_listing_generation_prompt(
     prompt_parts.append("")
     prompt_parts.append("1. TITLE:")
     prompt_parts.append("   - Create a compelling, SEO-friendly title (max 100 characters)")
-    prompt_parts.append("   - Include key features (bedrooms, bathrooms, square footage if mentioned)")
-    prompt_parts.append("   - Mention location/neighborhood if available")
+    prompt_parts.append(f"   - MUST include: {bedrooms}BR/{bathrooms_display}BA {property_type}")
+    prompt_parts.append(f"   - Include square footage: {sqft:,} sqft")
+    prompt_parts.append("   - Mention location ONLY if you have a valid neighborhood name (do NOT use placeholder words like 'What', 'Where', etc.)")
+    prompt_parts.append("   - If neighborhood information is unclear or invalid, use the city/area from the address instead")
+    prompt_parts.append("   - DO NOT include invalid words, placeholders, or garbage text in the title")
+    prompt_parts.append("   - Use proper capitalization and professional language")
     if listing_type == "rent":
         prompt_parts.append("   - For rentals: Include 'For Rent' or 'Available for Rent' in title")
-        prompt_parts.append("   - Example: 'Beautiful 3BR/2BA Apartment for Rent in Downtown Manhattan'")
+        prompt_parts.append(f"   - Example: 'Beautiful {bedrooms}BR/{bathrooms_display}BA {property_type} for Rent in Manhattan' or 'Modern {property_type} for Rent in New York, NY'")
     else:
         prompt_parts.append("   - For sales: Include 'For Sale' or focus on property type")
-        prompt_parts.append("   - Example: 'Beautiful 3BR/2BA Home in Downtown Manhattan'")
+        prompt_parts.append(f"   - Example: 'Beautiful {bedrooms}BR/{bathrooms_display}BA {property_type} for Sale in Manhattan' or 'Charming {property_type} for Sale in New York, NY'")
     prompt_parts.append("")
     prompt_parts.append("2. DESCRIPTION:")
     prompt_parts.append("   - Write professional, engaging prose (2-4 paragraphs)")
-    prompt_parts.append("   - Highlight key features from the property information")
-    prompt_parts.append("   - Mention location benefits (neighborhood, landmarks, amenities)")
+    prompt_parts.append(f"   - MUST include property details: {bedrooms} bedrooms, {bathrooms_display} bathrooms, {sqft:,} sqft {property_type}")
+    prompt_parts.append("   - Highlight key features from the property information and property features section")
+    prompt_parts.append("   - Mention location benefits (neighborhood, landmarks, amenities) ONLY if the information is valid and meaningful")
+    prompt_parts.append("   - Include neighborhood quality information (safety, crime rates, quality of life) if provided and valid")
+    prompt_parts.append("   - DO NOT use placeholder words, invalid data, or garbage text (e.g., 'What', 'Where', etc.)")
+    prompt_parts.append("   - If neighborhood/amenity data seems invalid, skip it and focus on the address and property features")
     prompt_parts.append("   - Use descriptive, appealing language")
     prompt_parts.append("   - DO NOT include price information in the description")
     prompt_parts.append("   - Make it SEO-friendly and suitable for real estate websites")
+    prompt_parts.append("   - Only mention specific schools, parks, or amenities if they have valid, meaningful names")
     
     # Adapt description style based on listing type
     if listing_type == "rent":
@@ -210,23 +247,18 @@ def build_listing_generation_prompt(
         prompt_parts.append("     * Focus on what makes it a great long-term investment")
     prompt_parts.append("")
     prompt_parts.append("3. PRICE_BLOCK:")
-    if listing_type == "rent":
-        prompt_parts.append("   - Format as: '$X,XXX/month' or '$X,XXX/week' (based on billing_cycle)")
-        if security_deposit is not None:
-            prompt_parts.append(f"   - Include security deposit if provided: 'Security Deposit: ${security_deposit:,.2f}'")
-    else:
-        prompt_parts.append("   - Format as: '$X,XXX,XXX'")
-        if hoa_fees is not None:
-            prompt_parts.append(f"   - Include HOA fees if provided: 'HOA Fees: ${hoa_fees:,.2f}/month'")
-        if property_taxes is not None:
-            prompt_parts.append(f"   - Include property taxes if provided: 'Property Taxes: ${property_taxes:,.2f}/year'")
+    prompt_parts.append("   - Price not provided - return empty string for price_block (price can be added later when posting)")
     prompt_parts.append("")
     prompt_parts.append("=== IMPORTANT GUIDELINES ===")
     prompt_parts.append("- Be factual and accurate - only use information provided")
     prompt_parts.append("- Do NOT invent or make up any details")
     prompt_parts.append("- Do NOT include price in the description (only in price_block)")
+    prompt_parts.append("- Do NOT use placeholder words, invalid data, or garbage text (e.g., 'What', 'Where', 'This', 'That')")
+    prompt_parts.append("- If enrichment data (neighborhood, amenities) contains invalid words or seems like garbage, IGNORE it")
+    prompt_parts.append("- Focus on the address, property features from notes, and only valid enrichment data")
     prompt_parts.append("- Keep content professional and suitable for real estate websites")
     prompt_parts.append("- Ensure content is property listing-related only")
+    prompt_parts.append("- Quality over quantity: Better to omit unclear information than to include garbage text")
     prompt_parts.append("")
     prompt_parts.append("=== OUTPUT FORMAT ===")
     prompt_parts.append("Return ONLY valid JSON with the following structure:")
