@@ -257,7 +257,8 @@ def validate_notes(notes: Optional[str]) -> Optional[str]:
     """
     Validate notes field.
     
-    Notes are optional but if provided, should not be empty.
+    Notes are optional - empty or None values are acceptable.
+    If provided with content, validates format and length.
     
     Args:
         notes: Notes to validate
@@ -265,14 +266,20 @@ def validate_notes(notes: Optional[str]) -> Optional[str]:
     Returns:
         Error message if validation fails, None otherwise
     """
+    # Notes are optional - None is perfectly fine
     if notes is None:
-        return None  # Notes are optional
+        return None  # Notes are optional, None is acceptable
     
+    # Check type first
     if not isinstance(notes, str):
         return "notes must be a string"
     
+    # Empty string (even with whitespace) is also acceptable for optional field
     if notes.strip() == "":
-        return "notes cannot be empty if provided"
+        return None  # Notes are optional, empty is acceptable
+    
+    # Only validate length if notes has actual content
+    # (No length limit needed for optional field, but we can add one if desired)
     
     return None
 

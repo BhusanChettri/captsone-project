@@ -13,7 +13,40 @@ State Flow:
 6. Error tracking (validation errors, processing errors)
 """
 
-from typing import TypedDict, Literal, Optional, List, Dict, Any
+from typing import TypedDict, Literal, Optional, List, Dict, Any, Annotated
+
+
+def merge_error_lists(left: List[str] | None, right: List[str] | None) -> List[str]:
+    """
+    Reducer for merging error lists across nodes (handles sequential + parallel updates).
+    
+    Ensures:
+        - Existing errors are preserved
+        - New errors are appended in order of arrival
+        - Duplicate prefixes (from nodes returning full error lists) are avoided
+    """
+    left = list(left or [])
+    right = list(right or [])
+    
+    if not left:
+        return right
+    if not right:
+        return left
+    
+    prefix_len = 0
+    max_prefix = min(len(left), len(right))
+    while prefix_len < max_prefix and left[prefix_len] == right[prefix_len]:
+        prefix_len += 1
+    
+    if prefix_len == len(left):
+        # Right extends left (sequential append)
+        return right
+    if prefix_len == len(right):
+        # Left already contains everything in right
+        return left
+    
+    # Parallel updates: combine shared prefix with unique suffix from right
+    return left + right[prefix_len:]
 
 
 class PropertyListingState(TypedDict, total=False):
@@ -164,6 +197,16 @@ class PropertyListingState(TypedDict, total=False):
     """
     
     # ========================================================================
+    # Price Prediction Fields (set by price prediction node)
+    # ========================================================================
+    
+    predicted_price: Optional[float]
+    """Predicted market price from LLM (in USD)."""
+    
+    predicted_price_reasoning: Optional[str]
+    """LLM's reasoning for the price prediction (1-2 sentences)."""
+    
+    # ========================================================================
     # LLM Output Fields (set by LLM generation node)
     # ========================================================================
     
@@ -193,6 +236,5 @@ class PropertyListingState(TypedDict, total=False):
     # Error Tracking
     # ========================================================================
     
-    errors: List[str]
+    errors: Annotated[List[str], merge_error_lists]
     """List of error messages encountered during processing. Always present, empty if no errors."""
-
