@@ -24,8 +24,8 @@ Production-ready AI-powered system for automatically generating professional pro
 
 Comprehensive documentation is available in the `documentation/` folder:
 - **[PROJECT_DOCUMENTATION.md](documentation/PROJECT_DOCUMENTATION.md)** - Complete project documentation
-- **[IMPLEMENTATION_STATUS.md](documentation/IMPLEMENTATION_STATUS.md)** - Implementation status
-- **[TESTING_GUIDE.md](documentation/TESTING_GUIDE.md)** - Testing guide
+- **[PRICE_PREDICTION_BRAINSTORM.md](documentation/PRICE_PREDICTION_BRAINSTORM.md)** - Price prediction feature documentation
+- **[TRACING_OBSERVABILITY.md](documentation/TRACING_OBSERVABILITY.md)** - Opik tracing and observability guide
 
 ## 🔐 Security
 
@@ -50,13 +50,15 @@ iteration1/
 
 ## ✨ Features
 
-- ✅ 7-node LangGraph workflow
+- ✅ 6-node LangGraph workflow with parallel execution
+- ✅ LLM-based price prediction
 - ✅ Input/Output guardrails for safety
 - ✅ Web search enrichment (Tavily)
-- ✅ LLM content generation (OpenAI)
+- ✅ LLM content generation (OpenAI GPT-5)
 - ✅ 85% latency reduction through optimization
 - ✅ Production-grade error handling
 - ✅ User-friendly Gradio UI
+- ✅ Opik observability and tracing
 
 ## 📝 License
 
