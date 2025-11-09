@@ -1,8 +1,8 @@
 # Property Listing AI System - Iteration 1
 ## Comprehensive Project Documentation
 
-**Version:** 1.0.0  
-**Last Updated:** 7th Nov, 2025  
+**Version:** 2.0.0  
+**Last Updated:** 8th Nov, 2025  
  
 
 ---
@@ -32,11 +32,13 @@
 The **Property Listing AI System - Iteration 1** is a lightweight, production-grade Gradio-based prototype that automatically generates clean, ready-to-publish property listings for real estate agents. The system takes minimal structured inputs (property address, listing type, price, and notes) and produces professional, SEO-friendly listings suitable for platforms like Zillow.
 
 ### Key Achievements
-- ✅ **7-node LangGraph workflow** with complete error handling
+- ✅ **6-node LangGraph workflow** with parallel execution and complete error handling
 - ✅ **85% latency reduction** through optimization (12-18s → 1.5-3s)
+- ✅ **LLM-based price prediction** with parallel execution for faster processing
 - ✅ **Production-grade code quality** with comprehensive testing
 - ✅ **Safety-first approach** with input and output guardrails
 - ✅ **User-friendly Gradio UI** with dynamic fields and progress tracking
+- ✅ **Opik observability** for tracing and monitoring
 
 ---
 
@@ -55,8 +57,9 @@ Real estate agents spend significant time creating property listings that are:
 An AI-powered system that:
 1. Takes minimal input from agents
 2. Enriches data with web search (location context, amenities)
-3. Generates professional listings using LLM
-4. Validates and formats output for direct publishing
+3. Predicts market price using LLM (parallel with content generation)
+4. Generates professional listings using LLM (parallel with price prediction)
+5. Validates and formats output for direct publishing
 
 ### Target Users
 
@@ -91,12 +94,12 @@ An AI-powered system that:
 │      LangGraph Workflow             │
 │  ┌───────────────────────────────┐  │
 │  │  Node 1: Input Guardrail      │  │
-│  │  Node 2: Validate Input       │  │
-│  │  Node 3: Normalize Text       │  │
-│  │  Node 4: Enrich Data          │  │
-│  │  Node 5: Generate Content     │  │
-│  │  Node 6: Output Guardrail     │  │
-│  │  Node 7: Format Output        │  │
+│  │  Node 2: Enrich Data          │  │
+│  │  Node 3: Predict Price        │  │
+│  │  Node 4: Generate Content     │  │
+│  │  (Nodes 3 & 4 run in parallel)│  │
+│  │  Node 5: Output Guardrail     │  │
+│  │  Node 6: Format Output        │  │
 │  └───────────────────────────────┘  │
 └─────────────────────────────────────┘
          │
@@ -111,10 +114,11 @@ An AI-powered system that:
 
 - **Language**: Python 3.11+
 - **Framework**: LangGraph (workflow orchestration)
-- **LLM**: OpenAI GPT-4o-mini (content generation)
+- **LLM**: OpenAI GPT-5 (content generation and price prediction)
 - **Web Search**: Tavily API (data enrichment)
 - **UI**: Gradio (web interface)
 - **State Management**: TypedDict (type-safe state)
+- **Observability**: Opik (tracing and monitoring)
 
 ### Directory Structure
 
@@ -123,18 +127,20 @@ iteration1/
 ├── src/
 │   ├── core/
 │   │   ├── state.py          # State definition (TypedDict)
-│   │   ├── nodes.py          # All 7 workflow nodes
+│   │   ├── nodes.py          # All 6 workflow nodes
 │   │   └── workflow.py       # LangGraph workflow definition
 │   ├── models/
 │   │   └── listing_models.py # Input/Output data models
 │   └── utils/
 │       ├── guardrails.py     # Input/output guardrails
 │       ├── validators.py     # Input validation
-│       ├── normalization.py  # Text normalization
 │       ├── enrichment.py     # Web search enrichment
 │       ├── prompts.py        # LLM prompt building
 │       ├── llm_client.py     # LLM client wrapper
 │       ├── formatters.py     # Output formatting
+│       ├── price_prediction.py # Price prediction utilities
+│       ├── tracing.py        # Opik tracing utilities
+│       ├── region_config.py  # Region-specific configuration
 │       └── env_loader.py     # Environment variable loading
 ├── tests/                    # Unit and integration tests
 ├── app.py                    # Gradio UI
@@ -154,60 +160,64 @@ START
   │
   ▼
 ┌─────────────────────┐
-│ Input Guardrail     │  ← Safety checks (malicious content, injection attacks)
+│ Input Guardrail     │  ← Combined: Security, validation, and normalization
 └──────────┬──────────┘
            │
            ▼ (if errors → END)
 ┌─────────────────────┐
-│ Validate Input      │  ← Business logic validation (required fields, formats)
-└──────────┬──────────┘
-           │
-           ▼ (if errors → END)
-┌─────────────────────┐
-│ Normalize Text      │  ← Text cleaning and normalization
-└──────────┬──────────┘
-           │
-           ▼
-┌─────────────────────┐
-│ Enrich Data         │  ← Web search (ZIP, neighborhood, amenities)
+│ Enrich Data         │  ← Web search (ZIP, neighborhood, amenities, quality)
 │ (2 parallel calls)  │
 └──────────┬──────────┘
            │
-           ▼
-┌─────────────────────┐
-│ Generate Content    │  ← LLM content generation
-└──────────┬──────────┘
-           │
-           ▼
-┌─────────────────────┐
-│ Output Guardrail    │  ← Output validation (safety, compliance, quality)
-└──────────┬──────────┘
-           │
-           ▼
-┌─────────────────────┐
-│ Format Output       │  ← Final formatting and disclaimer
-└──────────┬──────────┘
-           │
-           ▼
-          END
+           ├─────────────────────┐
+           │                     │
+           ▼                     ▼
+┌─────────────────────┐  ┌─────────────────────┐
+│ Predict Price       │  │ Generate Content    │  ← Parallel execution
+│ (LLM)               │  │ (LLM)               │
+└──────────┬──────────┘  └──────────┬──────────┘
+           │                        │
+           └──────────┬─────────────┘
+                      │
+                      ▼
+           ┌─────────────────────┐
+           │ Output Guardrail    │  ← Output validation (safety, compliance, quality)
+           └──────────┬──────────┘
+                      │
+                      ▼
+           ┌─────────────────────┐
+           │ Format Output       │  ← Final formatting with predicted price
+           └──────────┬──────────┘
+                      │
+                      ▼
+                     END
 ```
 
 ### State Flow
 
 The state flows through each node, accumulating data:
 
-1. **Input State**: Raw user input (address, listing_type, price, notes)
-2. **Normalized State**: Cleaned text (normalized_address, normalized_notes)
-3. **Enriched State**: Web search data (zip_code, neighborhood, amenities)
-4. **LLM State**: Generated content (llm_raw_output, llm_parsed)
-5. **Final State**: Formatted output (title, description, price_block, formatted_listing)
+1. **Input State**: Raw user input (address, listing_type, property_type, bedrooms, bathrooms, sqft, notes)
+2. **Normalized State**: Cleaned text (normalized_address, normalized_notes) - done in input_guardrail
+3. **Enriched State**: Web search data (zip_code, neighborhood, landmarks, key_amenities, neighborhood_quality)
+4. **Parallel Processing**: 
+   - **Price Prediction State**: predicted_price, predicted_price_reasoning
+   - **Content Generation State**: llm_raw_output, llm_parsed
+5. **Final State**: Formatted output (title, description, price_block, formatted_listing with predicted price)
 
 ### Conditional Routing
 
 The workflow uses conditional routing to stop early if errors are detected:
 - After **Input Guardrail**: If errors found → END
-- After **Validate Input**: If errors found → END
 - After other nodes: Continue (errors logged but don't stop workflow)
+
+### Parallel Execution
+
+The workflow uses parallel execution for independent operations:
+- **Predict Price** and **Generate Content** run simultaneously after enrichment
+- Both nodes receive the same enriched state
+- LangGraph automatically merges their outputs before proceeding to Output Guardrail
+- This reduces total execution time by running independent LLM calls in parallel
 
 ---
 
@@ -215,75 +225,39 @@ The workflow uses conditional routing to stop early if errors are detected:
 
 ### Node 1: Input Guardrail Node
 
-**Purpose**: First line of defense - prevents malicious/abusive content from entering the system.
+**Purpose**: Combined first node that performs security checks, validation, and normalization.
 
 **Location**: `src/core/nodes.py` → `input_guardrail_node()`
 
-**Checks Performed**:
-1. **Injection Attack Detection**: SQL injection, script injection, command injection
-2. **Inappropriate Content**: Racism, sexual content, dangerous material
-3. **Property-Related Validation**: Ensures input is property listing-related
-4. **Text Length Limits**: Address ≤ 500 chars, Notes ≤ 2000 chars
+**Functions Performed**:
+1. **Security Checks**:
+   - Injection Attack Detection: SQL injection, script injection, command injection
+   - Inappropriate Content: Racism, sexual content, dangerous material
+   - Text Length Limits: Address ≤ 500 chars, Notes ≤ 2000 chars
+2. **Field Validation**:
+   - Required fields: address, listing_type, property_type, bedrooms, bathrooms, sqft
+   - Field formats and types validation
+   - Optional fields validation (notes)
+3. **Text Normalization**:
+   - Trims whitespace
+   - Normalizes line breaks
+   - Normalizes multiple spaces
 
 **Implementation**:
-- Uses rule-based keyword matching
-- Dynamic strictness: Only validates property-related if required fields present
-- Prevents guardrail from masking validation errors
+- Uses rule-based keyword matching for security
+- Comprehensive validation with clear error messages
+- Text normalization for consistent processing
+- Returns updates dict for proper state merging in parallel execution
 
 **Error Handling**: Adds errors to `state["errors"]` if validation fails
 
-**Utilities**: `src/utils/guardrails.py` → `check_input_guardrails()`
+**Utilities**: 
+- `src/utils/guardrails.py` → `check_input_guardrails()`, `detect_injection_attacks()`
+- `src/utils/validators.py` → `validate_address()`, `validate_listing_type()`, etc.
 
 ---
 
-### Node 2: Validate Input Node
-
-**Purpose**: Business logic validation - ensures required fields are present and valid.
-
-**Location**: `src/core/nodes.py` → `validate_input_node()`
-
-**Validations**:
-1. **Required Fields**: address, listing_type, price
-2. **Field Formats**: 
-   - Address: Minimum 5 chars, alphanumeric content (flexible - supports building names)
-   - Listing Type: Must be "sale" or "rent"
-   - Price: Must be positive number
-3. **Optional Fields**: Validates format if provided (billing_cycle, lease_term, etc.)
-
-**Implementation**:
-- Comprehensive validation with clear error messages
-- Flexible address validation (supports international addresses, building names)
-- Type checking and range validation
-
-**Error Handling**: Adds validation errors to `state["errors"]`
-
-**Utilities**: `src/utils/validators.py` → `validate_input_fields()`
-
----
-
-### Node 3: Normalize Text Node
-
-**Purpose**: Cleans and normalizes text inputs for consistent processing.
-
-**Location**: `src/core/nodes.py` → `normalize_text_node()`
-
-**Normalization Steps**:
-1. **Address Normalization**:
-   - Trims whitespace
-   - Normalizes line breaks
-   - Preserves address structure
-2. **Notes Normalization**:
-   - Trims whitespace
-   - Normalizes line breaks
-   - Cleans formatting
-
-**Output**: Stores normalized versions in `state["normalized_address"]` and `state["normalized_notes"]`
-
-**Utilities**: `src/utils/normalization.py` → `normalize_address()`, `normalize_notes()`
-
----
-
-### Node 4: Enrich Data Node
+### Node 2: Enrich Data Node
 
 **Purpose**: Enriches property data with local context via web search.
 
@@ -295,14 +269,18 @@ The workflow uses conditional routing to stop early if errors are detected:
 - **Improvement**: 85% latency reduction
 
 **Searches Performed** (in parallel):
-1. **Location Search**: ZIP code + Neighborhood
-2. **Amenities Search**: Schools + Transportation (combined, prioritized by listing_type)
+1. **Amenities Search**: Schools, supermarkets, parks, transportation (combined search)
+2. **Neighborhood Quality Search**: Crime rates, quality of life, safety statistics
 
 **Data Extracted**:
 - `zip_code`: ZIP code from address
 - `neighborhood`: Neighborhood name
-- `key_amenities["schools"]`: Nearby schools (up to 3)
-- `key_amenities["transportation"]`: Transportation options (up to 3)
+- `landmarks`: Nearby landmarks (top 3-5)
+- `key_amenities["schools"]`: Nearby schools
+- `key_amenities["supermarkets"]`: Nearby supermarkets
+- `key_amenities["parks"]`: Nearby parks
+- `key_amenities["transportation"]`: Transportation options
+- `neighborhood_quality`: Crime info, quality of life, safety information
 
 **Implementation**:
 - Uses `ThreadPoolExecutor` for parallel execution
@@ -315,7 +293,48 @@ The workflow uses conditional routing to stop early if errors are detected:
 
 ---
 
-### Node 5: Generate Content Node
+### Node 3: Predict Price Node
+
+**Purpose**: Predicts market price for the property using LLM analysis.
+
+**Location**: `src/core/nodes.py` → `predict_price_node()`
+
+**Process**:
+1. **Build Price Prediction Prompt**: Uses all structured property data (bedrooms, bathrooms, sqft, location, amenities, neighborhood quality)
+2. **Call LLM**: Uses OpenAI GPT-5 with lower temperature (0.4) for consistent predictions
+3. **Parse JSON Response**: Extracts predicted_price and reasoning
+4. **Store in State**: `predicted_price` and `predicted_price_reasoning`
+
+**Prompt Structure**:
+- Property Details (address, type, bedrooms, bathrooms, sqft, listing_type)
+- Location Context (ZIP code, neighborhood, landmarks)
+- Amenities (schools, parks, transportation, supermarkets)
+- Neighborhood Quality (crime info, quality of life, safety)
+- Market analysis instructions
+
+**Output Format** (JSON):
+```json
+{
+  "predicted_price": 540000.0,
+  "reasoning": "Based on comparable properties in the area..."
+}
+```
+
+**Implementation**:
+- Runs in parallel with Generate Content Node
+- Uses structured data only (no notes field)
+- Validates predicted price is reasonable
+- Optional: If prediction fails, workflow continues
+
+**Utilities**: 
+- `src/utils/price_prediction.py` → `build_price_prediction_prompt()`, `parse_price_prediction_response()`, `validate_predicted_price()`
+- `src/utils/llm_client.py` → `initialize_llm()`, `call_llm_with_prompt()`
+
+**API**: OpenAI API (requires `OPENAI_API_KEY`)
+
+---
+
+### Node 4: Generate Content Node
 
 **Purpose**: Generates professional listing content using LLM.
 
@@ -323,9 +342,11 @@ The workflow uses conditional routing to stop early if errors are detected:
 
 **Process**:
 1. **Build Comprehensive Prompt**: Merges all available data (input, normalized, enriched)
-2. **Call LLM**: Uses OpenAI GPT-4o-mini
+2. **Call LLM**: Uses OpenAI GPT-5 with temperature 0.7 for engaging descriptions
 3. **Parse JSON Response**: Extracts title, description, price_block
 4. **Store in State**: `llm_raw_output` and `llm_parsed`
+
+**Note**: Runs in parallel with Predict Price Node for faster execution
 
 **Prompt Structure**:
 - Property Information (address, type, price, optional fields)
@@ -344,9 +365,11 @@ The workflow uses conditional routing to stop early if errors are detected:
 ```
 
 **Implementation**:
-- Comprehensive prompt with all context
+- Comprehensive prompt with improved structure and writing guidance
 - JSON parsing with error handling
-- Temperature: 0.7 (balanced creativity/consistency)
+- Temperature: 0.7 (for engaging, natural language)
+- Enhanced prompt with paragraph-by-paragraph structure guidance
+- Power words and active voice instructions for better quality
 
 **Utilities**: 
 - `src/utils/prompts.py` → `build_listing_generation_prompt()`
@@ -356,7 +379,7 @@ The workflow uses conditional routing to stop early if errors are detected:
 
 ---
 
-### Node 6: Output Guardrail Node
+### Node 5: Output Guardrail Node
 
 **Purpose**: Validates LLM output for safety, compliance, and quality.
 
@@ -380,7 +403,7 @@ The workflow uses conditional routing to stop early if errors are detected:
 
 ---
 
-### Node 7: Format Output Node
+### Node 6: Format Output Node
 
 **Purpose**: Formats final output with proper structure and disclaimer.
 
@@ -393,7 +416,9 @@ The workflow uses conditional routing to stop early if errors are detected:
 4. **Format Listing**: Creates structured output with:
    - Title (prominent)
    - Description (formatted paragraphs)
-   - Price block (clearly separated)
+   - Pricing Information section:
+     - User-provided price (if available): "Monthly Rent:" or "Asking Price:"
+     - Predicted price (if available): "Predicted Monthly Rental:" or "Predicted Price:"
    - Disclaimer ("All information deemed reliable but not guaranteed. Equal Housing Opportunity.")
 
 **Output Structure**:
@@ -424,9 +449,10 @@ All information deemed reliable but not guaranteed. Equal Housing Opportunity.
 **Type**: `PropertyListingState` (TypedDict)
 
 **Fields**:
-- **Input Fields**: `address`, `listing_type`, `price`, `notes`, optional fields
+- **Input Fields**: `address`, `listing_type`, `property_type`, `bedrooms`, `bathrooms`, `sqft`, `notes`, optional fields
 - **Processing Fields**: `normalized_address`, `normalized_notes`
-- **Enrichment Fields**: `zip_code`, `neighborhood`, `landmarks`, `key_amenities`
+- **Enrichment Fields**: `zip_code`, `neighborhood`, `landmarks`, `key_amenities`, `neighborhood_quality`
+- **Price Prediction Fields**: `predicted_price`, `predicted_price_reasoning`
 - **LLM Fields**: `llm_raw_output`, `llm_parsed`
 - **Output Fields**: `title`, `description`, `price_block`, `formatted_listing`
 - **Error Tracking**: `errors` (List[str])
@@ -442,9 +468,10 @@ All information deemed reliable but not guaranteed. Equal Housing Opportunity.
 
 **Steps**:
 1. Create `StateGraph` with `PropertyListingState`
-2. Add all 7 nodes
-3. Add edges with conditional routing
+2. Add all 6 nodes
+3. Add edges with conditional routing and parallel execution
 4. Compile graph
+5. Initialize Opik tracer for observability
 
 **Conditional Routing**: `should_continue_workflow()` checks for errors and routes to END if found
 
@@ -527,18 +554,21 @@ def should_continue_workflow(state: PropertyListingState) -> str:
 
 ### LLM Integration
 
-**Model**: GPT-4o-mini (OpenAI)
+**Model**: GPT-5 (OpenAI)
 
-**Why GPT-4o-mini?**
-- Cost-effective
-- Fast response times
-- Good quality for structured output
+**Why GPT-5?**
+- Highest quality output for professional listings
+- Better understanding of context and nuance
+- Improved prompt following and structured output
+- Used for both content generation and price prediction
 
 **Prompt Engineering**:
 - Comprehensive context (all available data)
-- Clear instructions
+- Clear paragraph-by-paragraph structure guidance
+- Writing style instructions (power words, active voice)
 - JSON output format
 - Examples and guidelines
+- Enhanced quality-focused instructions
 
 **Error Handling**:
 - JSON parsing with fallback
@@ -569,6 +599,9 @@ def should_continue_workflow(state: PropertyListingState) -> str:
 
 **Optional**:
 - `GRADIO_SERVER_PORT`: Port for Gradio UI (default: 7860)
+- `OPIK_USE_LOCAL`: Set to "true" for local Opik server, "false" for cloud (default: false)
+- `OPIK_URL`: URL for local Opik server (default: http://localhost:5173/api/)
+- `COMET_API_KEY`: Comet API key for Opik Cloud mode
 
 **Loading**: `src/utils/env_loader.py` → Loads from `iteration1/.env`
 
@@ -645,12 +678,12 @@ The UI will be available at `http://localhost:7860` (or port specified in `GRADI
 
 1. **Enter Property Address**: Full address (e.g., "123 Main St, New York, NY 10001")
 2. **Select Listing Type**: "sale" or "rent"
-3. **Enter Price**: Asking price in USD
-4. **Add Notes** (optional): Property features, amenities, etc.
-5. **Add Optional Fields**:
-   - For rentals: billing_cycle, lease_term, security_deposit
-   - For sales: hoa_fees, property_taxes
-6. **Click "Generate Listing"**: System processes and generates listing
+3. **Select Property Type**: Apartment, House, Condo, Townhouse, Studio, or Loft
+4. **Enter Bedrooms**: Number of bedrooms
+5. **Enter Bathrooms**: Number of bathrooms (can be decimal like 1.5)
+6. **Enter Square Footage**: Total living area in square feet
+7. **Add Notes** (optional): Property features, amenities, etc.
+8. **Click "Generate Listing"**: System processes, predicts price, and generates listing
 
 ### Programmatic Usage
 
@@ -661,8 +694,11 @@ from main import process_listing_request
 result = process_listing_request(
     address="123 Main St, New York, NY 10001",
     listing_type="sale",
-    price=500000.0,
-    notes="Beautiful 3BR/2BA apartment with modern kitchen"
+    property_type="Apartment",
+    bedrooms=3,
+    bathrooms=2,
+    sqft=1200,
+    notes="Beautiful apartment with modern kitchen"
 )
 
 if result["success"]:
@@ -681,7 +717,10 @@ workflow = create_workflow()
 initial_state: PropertyListingState = {
     "address": "123 Main St, New York, NY 10001",
     "listing_type": "sale",
-    "price": 500000.0,
+    "property_type": "Apartment",
+    "bedrooms": 3,
+    "bathrooms": 2,
+    "sqft": 1200,
     "notes": "Beautiful apartment",
     "errors": []
 }
@@ -699,8 +738,6 @@ print(result["formatted_listing"])
 ```
 tests/
 ├── test_input_guardrail_node.py
-├── test_validate_input_node.py
-├── test_normalize_text_node.py
 ├── test_enrich_data_node.py
 ├── test_generate_content_node.py
 ├── test_output_guardrail_node.py
@@ -791,17 +828,24 @@ pytest tests/ --cov=src --cov-report=html
 
 ## Future Enhancements
 
+### Completed Features
+
+1. ✅ **Price Prediction**: LLM-based market price prediction with reasoning
+2. ✅ **Parallel Execution**: Price prediction and content generation run simultaneously
+3. ✅ **Enhanced Prompts**: Improved prompt structure for better listing quality
+4. ✅ **Opik Observability**: Comprehensive tracing and monitoring
+
 ### Iteration 2 (Planned)
 
 1. **Hybrid Guardrails**: LLM-based checks for nuanced content moderation
 2. **Multimodal Enrichment**: Image analysis for property photos
-3. **Price Analysis**: Market analysis and price recommendations
+3. **Enhanced Price Analysis**: Market analysis with comparable properties
 4. **Conversational Interface**: Chat-based interaction
 5. **Caching**: Cache enrichment results for repeated addresses
 
 ### Iteration 3 (Planned)
 
-1. **Prediction Model**: Price prediction based on market data
+1. **ML-Based Price Prediction**: Traditional ML models trained on historical data
 2. **Comparable Properties**: Find and compare similar properties
 3. **Market Trends**: Historical price trends and forecasts
 4. **Advanced Analytics**: Property value estimation, ROI calculations
@@ -829,9 +873,9 @@ pytest tests/ --cov=src --cov-report=html
 - **Solution**: AI-powered automated listing generation
 
 ### Slide 3: Solution Overview
-- **What**: Takes minimal input → Generates professional listings
-- **How**: 7-node LangGraph workflow with web search enrichment
-- **Result**: Ready-to-publish listings in 3-5 seconds
+- **What**: Takes minimal input → Predicts price → Generates professional listings
+- **How**: 6-node LangGraph workflow with parallel execution and web search enrichment
+- **Result**: Ready-to-publish listings with price predictions in 3-5 seconds
 
 ### Slide 4: Architecture Diagram
 - Show high-level architecture (UI → Workflow → Output)
@@ -844,9 +888,11 @@ pytest tests/ --cov=src --cov-report=html
 
 ### Slide 6: Key Features
 - Safety-first approach (input/output guardrails)
+- LLM-based price prediction with parallel execution
 - Performance optimizations (85% latency reduction)
 - User-friendly UI (dynamic fields, progress tracking)
 - Production-grade error handling
+- Opik observability for monitoring
 
 ### Slide 7: Performance Metrics
 - Before: 12-18 seconds
@@ -856,10 +902,11 @@ pytest tests/ --cov=src --cov-report=html
 
 ### Slide 8: Technical Stack
 - Python 3.11+
-- LangGraph (workflow)
-- OpenAI GPT-4o-mini (LLM)
+- LangGraph (workflow with parallel execution)
+- OpenAI GPT-5 (LLM for content and price prediction)
 - Tavily (web search)
 - Gradio (UI)
+- Opik (observability and tracing)
 
 ### Slide 9: Demo
 - Live demo of the system
@@ -867,8 +914,9 @@ pytest tests/ --cov=src --cov-report=html
 - Highlight key features
 
 ### Slide 10: Future Roadmap
-- Iteration 2: Hybrid guardrails, multimodal enrichment
-- Iteration 3: Prediction model, market analysis
+- ✅ Completed: Price prediction, parallel execution, enhanced prompts
+- Iteration 2: Hybrid guardrails, multimodal enrichment, enhanced price analysis
+- Iteration 3: ML-based price prediction, comparable properties, market trends
 - Technical improvements: Async, database, API
 
 ### Slide 11: Q&A
@@ -918,7 +966,7 @@ The system is ready for production use and provides a solid foundation for futur
 
 ---
 
-**Document Version**: 1.0.0  
-**Last Updated**: 2024  
+**Document Version**: 2.0.0  
+**Last Updated**: November 8, 2025  
 **Maintained By**: Development Team
 
