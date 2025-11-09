@@ -1,6 +1,6 @@
 # Property List Mate - Iteration 1
 
-Production-ready AI-powered system for automatically generating professional property listings.
+AI-powered prototype system for automatically generating professional property listings using LangGraph workflows and LLM technology.
 
 ## 🚀 Quick Start
 
@@ -55,8 +55,7 @@ iteration1/
 - ✅ Input/Output guardrails for safety
 - ✅ Web search enrichment (Tavily)
 - ✅ LLM content generation (OpenAI GPT-5)
-- ✅ 85% latency reduction through optimization
-- ✅ Production-grade error handling
+- ✅ Comprehensive error handling
 - ✅ User-friendly Gradio UI
 - ✅ Opik observability and tracing
 
